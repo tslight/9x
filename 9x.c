@@ -41,10 +41,11 @@
 #define LENGTH(x)   (sizeof(x) / sizeof((x)[0]))
 #define MAX(a, b)   ((a) > (b) ? (a) : (b))
 #define MIN(a, b)   ((a) < (b) ? (a) : (b))
+#define U(x)        ((unsigned int)(x))
 
 typedef struct {
-	int           width;
-	int           hot[2];
+	unsigned int  width;
+	unsigned int  hot[2];
 	unsigned char mask[64];
 	unsigned char fore[64];
 } Cursordata;
@@ -125,10 +126,8 @@ static unsigned long col_menu_bg, col_menu_bd, col_red;
 static XftColor      xft_menu_fg, xft_menu_fgs;
 static volatile sig_atomic_t running = 1;
 
-/* sweep outline windows */
 static Window        swN, swS, swE, swW;
 
-/* Alt+Tab */
 static Window        tab_overlay = None;
 static XftDraw      *tab_xftdraw;
 static int           tab_active;
@@ -137,11 +136,9 @@ static Client       *tab_cls[MAXCLIENTS];
 static char         *tab_names[MAXCLIENTS];
 static int           tab_n;
 
-/* exec menu cache */
 static char        **execs;
-static int           nexecs;
+static size_t        nexecs;
 
-/* pending sweep geometry */
 static int           sweep_pending;
 static int           sweep_x, sweep_y, sweep_dx, sweep_dy;
 
@@ -150,9 +147,9 @@ getcolor(unsigned long rgb)
 {
 	XColor c;
 
-	c.red   = ((rgb >> 16) & 0xFF) * 0x101;
-	c.green = ((rgb >> 8) & 0xFF) * 0x101;
-	c.blue  = (rgb & 0xFF) * 0x101;
+	c.red   = (unsigned short)(((rgb >> 16) & 0xFF) * 0x101);
+	c.green = (unsigned short)(((rgb >> 8) & 0xFF) * 0x101);
+	c.blue  = (unsigned short)((rgb & 0xFF) * 0x101);
 	c.flags = DoRed | DoGreen | DoBlue;
 	if(!XAllocColor(dpy, DefaultColormap(dpy, screen), &c))
 		return WhitePixel(dpy, screen);
@@ -165,9 +162,9 @@ getxftcolor(unsigned long rgb)
 	XRenderColor rc;
 	XftColor c;
 
-	rc.red   = ((rgb >> 16) & 0xFF) * 0x101;
-	rc.green = ((rgb >> 8) & 0xFF) * 0x101;
-	rc.blue  = (rgb & 0xFF) * 0x101;
+	rc.red   = (unsigned short)(((rgb >> 16) & 0xFF) * 0x101);
+	rc.green = (unsigned short)(((rgb >> 8) & 0xFF) * 0x101);
+	rc.blue  = (unsigned short)((rgb & 0xFF) * 0x101);
 	rc.alpha = 0xFFFF;
 	XftColorAllocValue(dpy, DefaultVisual(dpy, screen),
 		DefaultColormap(dpy, screen), &rc, &c);
@@ -193,11 +190,11 @@ makecursor(Cursordata *d)
 }
 
 static int
-xft_textwidth(const char *s, int len)
+xft_textwidth(const char *s, size_t len)
 {
 	XGlyphInfo ext;
 
-	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)s, len, &ext);
+	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)s, (int)len, &ext);
 	return ext.xOff;
 }
 
@@ -322,7 +319,7 @@ getproto(Client *c)
 }
 
 static void
-sendcmessage(Window w, Atom proto, long data)
+sendcmessage(Window w, Atom proto, Atom data)
 {
 	XEvent ev;
 
@@ -331,7 +328,7 @@ sendcmessage(Window w, Atom proto, long data)
 	ev.xclient.window = w;
 	ev.xclient.message_type = proto;
 	ev.xclient.format = 32;
-	ev.xclient.data.l[0] = data;
+	ev.xclient.data.l[0] = (long)data;
 	ev.xclient.data.l[1] = CurrentTime;
 	XSendEvent(dpy, w, False, 0, &ev);
 }
@@ -436,6 +433,16 @@ promote(Client *c)
 	clients = c;
 }
 
+static void
+moveresize(Client *c)
+{
+	XMoveResizeWindow(dpy, c->frame,
+		c->x - c->border, c->y - c->border,
+		U(c->dx + 2 * c->border), U(c->dy + 2 * c->border));
+	XMoveResizeWindow(dpy, c->win,
+		c->border, c->border, U(c->dx), U(c->dy));
+}
+
 static Client *
 manage(Window w)
 {
@@ -502,14 +509,14 @@ manage(Window w)
 
 	c->frame = XCreateWindow(dpy, root,
 		c->x - c->border, c->y - c->border,
-		c->dx + 2 * c->border, c->dy + 2 * c->border,
+		U(c->dx + 2 * c->border), U(c->dy + 2 * c->border),
 		0, CopyFromParent, InputOutput, CopyFromParent,
 		CWOverrideRedirect | CWBackPixel | CWEventMask, &sa);
 
 	c->reparenting = 1;
 	XAddToSaveSet(dpy, w);
 	XReparentWindow(dpy, w, c->frame, c->border, c->border);
-	XResizeWindow(dpy, w, c->dx, c->dy);
+	XResizeWindow(dpy, w, U(c->dx), U(c->dy));
 	XMapWindow(dpy, w);
 	XMapWindow(dpy, c->frame);
 	XSelectInput(dpy, w, PropertyChangeMask | StructureNotifyMask);
@@ -579,20 +586,17 @@ togglemax(Client *c)
 		c->dy = sh - 2 * BORDER;
 		c->maximized = 1;
 	}
-	XMoveResizeWindow(dpy, c->frame,
-		c->x - c->border, c->y - c->border,
-		c->dx + 2 * c->border, c->dy + 2 * c->border);
-	XMoveResizeWindow(dpy, c->win, c->border, c->border, c->dx, c->dy);
+	moveresize(c);
 	sendconfig(c);
 }
 
 static void
 outline_show(int x, int y, int w, int h)
 {
-	XMoveResizeWindow(dpy, swN, x, y, MAX(w, 1), BORDER);
-	XMoveResizeWindow(dpy, swS, x, y + h - BORDER, MAX(w, 1), BORDER);
-	XMoveResizeWindow(dpy, swW, x, y, BORDER, MAX(h, 1));
-	XMoveResizeWindow(dpy, swE, x + w - BORDER, y, BORDER, MAX(h, 1));
+	XMoveResizeWindow(dpy, swN, x, y, U(MAX(w, 1)), BORDER);
+	XMoveResizeWindow(dpy, swS, x, y + h - BORDER, U(MAX(w, 1)), BORDER);
+	XMoveResizeWindow(dpy, swW, x, y, BORDER, U(MAX(h, 1)));
+	XMoveResizeWindow(dpy, swE, x + w - BORDER, y, BORDER, U(MAX(h, 1)));
 	XMapRaised(dpy, swN);
 	XMapRaised(dpy, swS);
 	XMapRaised(dpy, swW);
@@ -620,11 +624,6 @@ make_outline_bar(void)
 		CWOverrideRedirect | CWBackPixel, &sa);
 }
 
-/*
- * Sweep out a rectangle on screen.  Returns 1 if the user
- * completed the sweep, 0 if cancelled.  Result in *rx, *ry,
- * *rdx, *rdy (frame coordinates including border).
- */
 static int
 sweep(int *rx, int *ry, int *rdx, int *rdy)
 {
@@ -638,13 +637,11 @@ sweep(int *rx, int *ry, int *rdx, int *rdy)
 	if(status != GrabSuccess)
 		return 0;
 
-	/* wait for initial button press to set origin */
 	drawn = 0;
 	done = 0;
 	bx = by = bdx = bdy = 0;
 	sx = sy = 0;
 
-	/* drain leftover events from chord */
 	XSync(dpy, False);
 	while(XCheckMaskEvent(dpy, ButtonReleaseMask | ButtonPressMask, &ev))
 		;
@@ -659,13 +656,11 @@ sweep(int *rx, int *ry, int *rdx, int *rdy)
 			done = 1;
 			break;
 		case MotionNotify:
-			break;
 		case ButtonRelease:
 			break;
 		}
 	}
 
-	/* now sweep */
 	done = 0;
 	while(!done){
 		XMaskEvent(dpy, ButtonPressMask | ButtonReleaseMask
@@ -693,7 +688,6 @@ sweep(int *rx, int *ry, int *rdx, int *rdy)
 			done = 1;
 			break;
 		case ButtonPress:
-			/* cancel */
 			if(drawn) outline_hide();
 			XUngrabPointer(dpy, CurrentTime);
 			return 0;
@@ -728,8 +722,9 @@ reshapeclient(Client *c)
 	c->dx = bdx - 2 * BORDER;
 	c->dy = bdy - 2 * BORDER;
 	c->maximized = 0;
-	XMoveResizeWindow(dpy, c->frame, bx, by, bdx, bdy);
-	XMoveResizeWindow(dpy, c->win, c->border, c->border, c->dx, c->dy);
+	XMoveResizeWindow(dpy, c->frame, bx, by, U(bdx), U(bdy));
+	XMoveResizeWindow(dpy, c->win,
+		c->border, c->border, U(c->dx), U(c->dy));
 	sendconfig(c);
 }
 
@@ -796,14 +791,12 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonPress){
-			/* B1+B3 chord: delete */
 			if(ev.xbutton.button == Button3){
 				outline_hide();
 				XUngrabPointer(dpy, CurrentTime);
 				deleteclient(c);
 				return;
 			}
-			/* B1+B2 chord: sweep reshape */
 			if(ev.xbutton.button == Button2){
 				outline_hide();
 				XUngrabPointer(dpy, CurrentTime);
@@ -817,9 +810,9 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			c->x = bx + BORDER; c->y = by + BORDER;
 			c->dx = bdx - 2 * BORDER; c->dy = bdy - 2 * BORDER;
 			c->maximized = 0;
-			XMoveResizeWindow(dpy, c->frame, bx, by, bdx, bdy);
+			XMoveResizeWindow(dpy, c->frame, bx, by, U(bdx), U(bdy));
 			XMoveResizeWindow(dpy, c->win,
-				c->border, c->border, c->dx, c->dy);
+				c->border, c->border, U(c->dx), U(c->dy));
 			sendconfig(c);
 			break;
 		}
@@ -956,7 +949,7 @@ tab_draw(void)
 	ox = (sw - mw_w) / 2;
 	oy = (sh - mw_h) / 2;
 
-	XMoveResizeWindow(dpy, tab_overlay, ox, oy, mw_w, mw_h);
+	XMoveResizeWindow(dpy, tab_overlay, ox, oy, U(mw_w), U(mw_h));
 	XMapRaised(dpy, tab_overlay);
 	XClearWindow(dpy, tab_overlay);
 
@@ -967,7 +960,7 @@ tab_draw(void)
 
 		if(i == tab_sel){
 			XftDrawRect(tab_xftdraw, &selbg,
-				0, ty, mw_w, itemh);
+				0, ty, U(mw_w), U(itemh));
 			fg = &xft_menu_fgs;
 		} else {
 			fg = &xft_menu_fg;
@@ -975,7 +968,7 @@ tab_draw(void)
 		XftDrawStringUtf8(tab_xftdraw, fg, xftfont,
 			4, ty + xftfont->ascent,
 			(const FcChar8 *)tab_names[i],
-			strlen(tab_names[i]));
+			(int)strlen(tab_names[i]));
 	}
 	XftColorFree(dpy, DefaultVisual(dpy, screen),
 		DefaultColormap(dpy, screen), &selbg);
@@ -1037,7 +1030,7 @@ menu_draw(Window mw, XftDraw *xd, XftColor *selbg,
 		int iy = MENUH_PAD + i * itemh;
 
 		if(i == sel){
-			XftDrawRect(xd, selbg, 0, iy, mw_w, itemh);
+			XftDrawRect(xd, selbg, 0, iy, U(mw_w), U(itemh));
 			fg = &xft_menu_fgs;
 		} else {
 			fg = &xft_menu_fg;
@@ -1045,7 +1038,7 @@ menu_draw(Window mw, XftDraw *xd, XftColor *selbg,
 		XftDrawStringUtf8(xd, fg, xftfont, 4,
 			iy + xftfont->ascent,
 			(const FcChar8 *)names[i],
-			strlen(names[i]));
+			(int)strlen(names[i]));
 	}
 	XFlush(dpy);
 }
@@ -1099,7 +1092,7 @@ winmenu(int mx, int my)
 	sa.event_mask = ExposureMask | ButtonPressMask
 		| PointerMotionMask | ButtonReleaseMask;
 
-	mw = XCreateWindow(dpy, root, x, y, mw_w, mw_h, 2,
+	mw = XCreateWindow(dpy, root, x, y, U(mw_w), U(mw_h), 2,
 		CopyFromParent, InputOutput, CopyFromParent,
 		CWOverrideRedirect | CWBackPixel | CWBorderPixel
 		| CWEventMask, &sa);
@@ -1175,7 +1168,7 @@ build_execs(void)
 	struct dirent *de;
 	struct stat sb;
 	char full[1024];
-	int cap;
+	size_t cap;
 
 	if(execs)
 		return;
@@ -1195,7 +1188,8 @@ build_execs(void)
 		dp = opendir(dir);
 		if(!dp) continue;
 		while((de = readdir(dp)) != NULL){
-			int dup, j;
+			int dup;
+			size_t j;
 
 			if(de->d_name[0] == '.') continue;
 			snprintf(full, sizeof(full), "%s/%s", dir, de->d_name);
@@ -1236,13 +1230,13 @@ exec_draw(Window mw, XftDraw *xd, XftColor *selbg, char **filtered,
 	snprintf(prompt, sizeof(prompt), "$ %s_", input);
 	XftDrawStringUtf8(xd, &xft_menu_fg, xftfont,
 		4, MENUH_PAD + xftfont->ascent,
-		(const FcChar8 *)prompt, strlen(prompt));
+		(const FcChar8 *)prompt, (int)strlen(prompt));
 	for(i = 0; i < nfilt; i++){
 		XftColor *fg;
 		int iy = MENUH_PAD + (i + 1) * itemh;
 
 		if(i == fsel){
-			XftDrawRect(xd, selbg, 0, iy, mw_w, itemh);
+			XftDrawRect(xd, selbg, 0, iy, U(mw_w), U(itemh));
 			fg = &xft_menu_fgs;
 		} else {
 			fg = &xft_menu_fg;
@@ -1250,7 +1244,7 @@ exec_draw(Window mw, XftDraw *xd, XftColor *selbg, char **filtered,
 		XftDrawStringUtf8(xd, fg, xftfont, 4,
 			iy + xftfont->ascent,
 			(const FcChar8 *)filtered[i],
-			strlen(filtered[i]));
+			(int)strlen(filtered[i]));
 	}
 	XFlush(dpy);
 }
@@ -1259,7 +1253,7 @@ static void
 exec_filter(char **filtered, int *nfilt, int maxlines,
 	const char *input, int len)
 {
-	int i;
+	size_t i;
 
 	*nfilt = 0;
 	for(i = 0; i < nexecs && *nfilt < maxlines; i++)
@@ -1279,7 +1273,8 @@ launch_at(int mx, int my, int from_button)
 	char **filtered;
 	int len, done, armed;
 	int mw_w, mw_h, itemh, nfilt, fsel;
-	int x, y, i, maxlines, centered;
+	int x, y, maxlines, centered;
+	size_t i;
 
 	if(!xftfont)
 		return;
@@ -1299,7 +1294,6 @@ launch_at(int mx, int my, int from_button)
 
 	exec_filter(filtered, &nfilt, maxlines, input, len);
 
-	/* dynamic width */
 	mw_w = 0;
 	for(i = 0; i < nexecs; i++){
 		int tw = xft_textwidth(execs[i], strlen(execs[i])) + 8;
@@ -1328,7 +1322,7 @@ launch_at(int mx, int my, int from_button)
 	sa.event_mask = ExposureMask | KeyPressMask | ButtonPressMask
 		| PointerMotionMask | ButtonReleaseMask;
 
-	mw = XCreateWindow(dpy, root, x, y, mw_w, mw_h, 2,
+	mw = XCreateWindow(dpy, root, x, y, U(mw_w), U(mw_h), 2,
 		CopyFromParent, InputOutput, CopyFromParent,
 		CWOverrideRedirect | CWBackPixel | CWBorderPixel
 		| CWEventMask, &sa);
@@ -1400,7 +1394,7 @@ launch_at(int mx, int my, int from_button)
 					strncpy(input, filtered[fsel],
 						LAUNCH_MAX - 1);
 					input[LAUNCH_MAX - 1] = '\0';
-					len = strlen(input);
+					len = (int)strlen(input);
 				}
 				goto refilter;
 			} else if(ks == XK_BackSpace){
@@ -1440,7 +1434,7 @@ launch_at(int mx, int my, int from_button)
 			if(centered){ x = (sw - mw_w) / 2; y = 0; }
 			if(y + mw_h > sh) y = sh - mw_h;
 			if(y < 0) y = 0;
-			XMoveResizeWindow(dpy, mw, x, y, mw_w, mw_h);
+			XMoveResizeWindow(dpy, mw, x, y, U(mw_w), U(mw_h));
 			XftDrawChange(xd, mw);
 			/* fallthrough */
 		redraw:
@@ -1587,15 +1581,10 @@ configreq(XConfigureRequestEvent *e)
 		if(e->value_mask & CWY) c->y = e->y;
 		if(e->value_mask & CWWidth) c->dx = e->width;
 		if(e->value_mask & CWHeight) c->dy = e->height;
-		XMoveResizeWindow(dpy, c->frame,
-			c->x - c->border, c->y - c->border,
-			c->dx + 2 * c->border, c->dy + 2 * c->border);
-		XMoveResizeWindow(dpy, c->win,
-			c->border, c->border, c->dx, c->dy);
+		moveresize(c);
 		sendconfig(c);
 		return;
 	}
-	/* unmanaged window — pass through */
 	wc.x = e->x;
 	wc.y = e->y;
 	wc.width = e->width;
@@ -1603,7 +1592,7 @@ configreq(XConfigureRequestEvent *e)
 	wc.border_width = e->border_width;
 	wc.sibling = e->above;
 	wc.stack_mode = e->detail;
-	XConfigureWindow(dpy, e->window, e->value_mask, &wc);
+	XConfigureWindow(dpy, e->window, U(e->value_mask), &wc);
 }
 
 static void
