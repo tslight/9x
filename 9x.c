@@ -37,6 +37,7 @@
 #define MAXCLIENTS  512
 #define MENUH_PAD   4
 #define LAUNCH_MAX  4096
+#define NDESKS      10
 
 #define LENGTH(x)   (sizeof(x) / sizeof((x)[0]))
 #define MAX(a, b)   ((a) > (b) ? (a) : (b))
@@ -104,6 +105,7 @@ struct Client {
 	int          border;
 	int          proto;
 	int          reparenting;
+	int          virt;
 	char        *label;
 	Client      *next;
 };
@@ -141,6 +143,12 @@ static size_t        nexecs;
 
 static int           sweep_pending;
 static int           sweep_x, sweep_y, sweep_dx, sweep_dy;
+
+static int           curdesk;
+static Client       *deskfocus[NDESKS];
+static char         *desknames[NDESKS] = {
+	"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"
+};
 
 static unsigned long
 getcolor(unsigned long rgb)
@@ -443,6 +451,29 @@ moveresize(Client *c)
 		c->border, c->border, U(c->dx), U(c->dy));
 }
 
+static void
+switch_to(int n)
+{
+	Client *c;
+
+	if(n < 0 || n >= NDESKS || n == curdesk)
+		return;
+	deskfocus[curdesk] = current;
+	curdesk = n;
+	for(c = clients; c; c = c->next){
+		if(c->virt != curdesk){
+			XUnmapWindow(dpy, c->frame);
+		} else {
+			XMapWindow(dpy, c->frame);
+		}
+	}
+	current = deskfocus[curdesk];
+	if(current)
+		focus(current);
+	else
+		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
+}
+
 static Client *
 manage(Window w)
 {
@@ -465,6 +496,7 @@ manage(Window w)
 
 	c->win = w;
 	c->border = BORDER;
+	c->virt = curdesk;
 
 	if(sweep_pending){
 		c->x = sweep_x;
@@ -534,19 +566,32 @@ static void
 unmanage(Client *c)
 {
 	Client **pp;
+	int i;
 
 	for(pp = &clients; *pp; pp = &(*pp)->next)
 		if(*pp == c){
 			*pp = c->next;
 			break;
 		}
+	for(i = 0; i < NDESKS; i++)
+		if(deskfocus[i] == c)
+			deskfocus[i] = NULL;
 	if(current == c){
 		current = NULL;
-		if(clients)
-			focus(clients);
-		else
+		if(clients){
+			Client *cc;
+			for(cc = clients; cc; cc = cc->next)
+				if(cc->virt == curdesk){
+					focus(cc);
+					break;
+				}
+			if(!current)
+				XSetInputFocus(dpy, root, RevertToPointerRoot,
+					CurrentTime);
+		} else {
 			XSetInputFocus(dpy, root, RevertToPointerRoot,
 				CurrentTime);
+		}
 	}
 	if(c->label)
 		XFree(c->label);
@@ -981,6 +1026,8 @@ tab_show(void)
 
 	tab_n = 0;
 	for(c = clients; c && tab_n < MAXCLIENTS; c = c->next){
+		if(c->virt != curdesk)
+			continue;
 		tab_cls[tab_n] = c;
 		tab_names[tab_n] = c->label ? c->label : "(unnamed)";
 		tab_n++;
@@ -1062,6 +1109,8 @@ winmenu(int mx, int my)
 	{
 		Client *c;
 		for(c = clients; c && ncls < MAXCLIENTS; c = c->next){
+			if(c->virt != curdesk)
+				continue;
 			cls[ncls] = c;
 			names[ncls] = c->label ? c->label : "(unnamed)";
 			ncls++;
@@ -1139,6 +1188,98 @@ winmenu(int mx, int my)
 				XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
 					c->dx / 2, c->dy / 2);
 			}
+			done = 1;
+			break;
+		case ButtonPress:
+			if(ev.xbutton.window != mw)
+				done = 1;
+			break;
+		}
+	}
+	XUngrabPointer(dpy, CurrentTime);
+	XftColorFree(dpy, DefaultVisual(dpy, screen),
+		DefaultColormap(dpy, screen), &selbg);
+	XftDrawDestroy(xd);
+	XDestroyWindow(dpy, mw);
+}
+
+static void
+deskmenu(int mx, int my)
+{
+	Window mw;
+	XSetWindowAttributes sa;
+	XEvent ev;
+	XftDraw *xd;
+	XftColor selbg;
+	int itemh, mw_w, mw_h, x, y, i;
+	int sel, done, armed;
+
+	if(!xftfont)
+		return;
+
+	itemh = xftfont->ascent + xftfont->descent + MENUH_PAD;
+	mw_w = 0;
+	for(i = 0; i < NDESKS; i++){
+		int tw = xft_textwidth(desknames[i], strlen(desknames[i])) + 8;
+		if(tw > mw_w) mw_w = tw;
+	}
+	if(mw_w < 80) mw_w = 80;
+	mw_h = NDESKS * itemh + MENUH_PAD * 2;
+
+	x = mx; y = my;
+	if(x + mw_w > sw) x = sw - mw_w;
+	if(y + mw_h > sh) y = sh - mw_h;
+	if(x < 0) x = 0;
+	if(y < 0) y = 0;
+
+	sa.override_redirect = True;
+	sa.background_pixel = col_menu_bg;
+	sa.border_pixel = col_menu_bd;
+	sa.event_mask = ExposureMask | ButtonPressMask
+		| PointerMotionMask | ButtonReleaseMask;
+
+	mw = XCreateWindow(dpy, root, x, y, U(mw_w), U(mw_h), 2,
+		CopyFromParent, InputOutput, CopyFromParent,
+		CWOverrideRedirect | CWBackPixel | CWBorderPixel
+		| CWEventMask, &sa);
+	XMapRaised(dpy, mw);
+
+	xd = XftDrawCreate(dpy, mw, DefaultVisual(dpy, screen),
+		DefaultColormap(dpy, screen));
+	XGrabPointer(dpy, mw, True,
+		ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+
+	armed = 0;
+	sel = curdesk;
+	done = 0;
+	selbg = getxftcolor(COL_MENU_BG_S);
+	menu_draw(mw, xd, &selbg, desknames, NDESKS, sel, itemh, mw_w);
+
+	while(!done){
+		XNextEvent(dpy, &ev);
+		switch(ev.type){
+		case Expose:
+			menu_draw(mw, xd, &selbg, desknames, NDESKS, sel, itemh, mw_w);
+			break;
+		case MotionNotify:
+			if(armed){
+				int ny = ev.xmotion.y - MENUH_PAD;
+				int old = sel;
+				if(ny >= 0 && ny < NDESKS * itemh)
+					sel = ny / itemh;
+				if(sel != old)
+					menu_draw(mw, xd, &selbg, desknames, NDESKS,
+						sel, itemh, mw_w);
+			}
+			break;
+		case ButtonRelease:
+			if(!armed){
+				armed = 1;
+				break;
+			}
+			if(sel >= 0 && sel < NDESKS)
+				switch_to(sel);
 			done = 1;
 			break;
 		case ButtonPress:
@@ -1460,12 +1601,25 @@ buttonpress(XButtonEvent *e)
 	int bl;
 
 	if(e->window == root){
-		if(e->button == 1)
+		switch(e->button){
+		case Button1:
 			winmenu(e->x_root, e->y_root);
-		else if(e->button == 2)
-			launch_at(e->x_root, e->y_root, 1);
-		else if(e->button == 3)
+			break;
+		case Button2:
+			deskmenu(e->x_root, e->y_root);
+			break;
+		case Button3:
 			sweepnew(e);
+			break;
+		case Button4:
+			if(curdesk > 0)
+				switch_to(curdesk - 1);
+			break;
+		case Button5:
+			if(curdesk < NDESKS - 1)
+				switch_to(curdesk + 1);
+			break;
+		}
 		return;
 	}
 
@@ -1522,6 +1676,11 @@ static void
 keypress(XKeyEvent *e)
 {
 	KeySym ks;
+	static const KeySym deskkeys[NDESKS] = {
+		XK_1, XK_2, XK_3, XK_4, XK_5,
+		XK_6, XK_7, XK_8, XK_9, XK_0
+	};
+	int i;
 
 	ks = XLookupKeysym(e, 0);
 	if(tab_active){
@@ -1537,6 +1696,14 @@ keypress(XKeyEvent *e)
 		}
 		return;
 	}
+
+	for(i = 0; i < NDESKS; i++){
+		if(ks == deskkeys[i]){
+			switch_to(i);
+			return;
+		}
+	}
+
 	switch(ks){
 	case XK_Tab:
 		XAllowEvents(dpy, AsyncKeyboard, e->time);
@@ -1553,6 +1720,14 @@ keypress(XKeyEvent *e)
 		break;
 	case XK_Return:
 		spawn(TERM);
+		break;
+	case XK_Left:
+		if(curdesk > 0)
+			switch_to(curdesk - 1);
+		break;
+	case XK_Right:
+		if(curdesk < NDESKS - 1)
+			switch_to(curdesk + 1);
 		break;
 	}
 }
@@ -1659,14 +1834,23 @@ static void
 grabkeys(void)
 {
 	unsigned int mods[] = { 0, LockMask, Mod2Mask, LockMask|Mod2Mask };
-	unsigned int i;
-	KeyCode tab, q, m, space, ret;
+	unsigned int i, j;
+	KeyCode tab, q, m, space, ret, left, right;
+	KeyCode dk[NDESKS];
+	static const KeySym deskkeys[NDESKS] = {
+		XK_1, XK_2, XK_3, XK_4, XK_5,
+		XK_6, XK_7, XK_8, XK_9, XK_0
+	};
 
 	tab   = XKeysymToKeycode(dpy, XK_Tab);
 	q     = XKeysymToKeycode(dpy, XK_q);
 	m     = XKeysymToKeycode(dpy, XK_m);
 	space = XKeysymToKeycode(dpy, XK_space);
 	ret   = XKeysymToKeycode(dpy, XK_Return);
+	left  = XKeysymToKeycode(dpy, XK_Left);
+	right = XKeysymToKeycode(dpy, XK_Right);
+	for(j = 0; j < NDESKS; j++)
+		dk[j] = XKeysymToKeycode(dpy, deskkeys[j]);
 
 	for(i = 0; i < LENGTH(mods); i++){
 		XGrabKey(dpy, tab, MOD|mods[i], root,
@@ -1681,6 +1865,13 @@ grabkeys(void)
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, ret, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
+		XGrabKey(dpy, left, MOD|mods[i], root,
+			True, GrabModeAsync, GrabModeAsync);
+		XGrabKey(dpy, right, MOD|mods[i], root,
+			True, GrabModeAsync, GrabModeAsync);
+		for(j = 0; j < NDESKS; j++)
+			XGrabKey(dpy, dk[j], MOD|mods[i], root,
+				True, GrabModeAsync, GrabModeAsync);
 	}
 }
 
@@ -1771,6 +1962,7 @@ cleanup(void)
 
 	for(c = clients; c; c = next){
 		next = c->next;
+		XMapWindow(dpy, c->frame);
 		XUngrabButton(dpy, AnyButton, AnyModifier, c->win);
 		XReparentWindow(dpy, c->win, root, c->x, c->y);
 		XRemoveFromSaveSet(dpy, c->win);
