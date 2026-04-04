@@ -1,5 +1,5 @@
 /*
- * 9x more scummy and rat infested than rio. Just say nein.
+ * 9x more scummy and rat infested than rio. Just say NEIN.
  *
  * Copyright (c) 2026 Toby Slight.  MIT License.
  */
@@ -1471,13 +1471,12 @@ deskmenu(int mx, int my)
 	char dnames[NDESKS][4];
 	char *dp[NDESKS];
 
+	if(!xftfont) return;
+
 	for(i = 0; i < NDESKS; i++){
 		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
 		dp[i] = dnames[i];
 	}
-
-	if(!xftfont)
-		return;
 
 	itemh = xftfont->ascent + xftfont->descent;
 	mw_w = 0;
@@ -1687,7 +1686,7 @@ launch(void)
 	char input[INPUTMAX];
 	char chosen[INPUTMAX];
 	char **filtered;
-	int len, done;
+	int len, done, refilter;
 	int mw_w, mw_h, itemh, nfilt, fsel;
 	int x, y, maxlines;
 	size_t i;
@@ -1725,8 +1724,7 @@ launch(void)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | KeyPressMask | ButtonPressMask
-		| PointerMotionMask | ButtonReleaseMask;
+	sa.event_mask = ExposureMask | KeyPressMask | ButtonPressMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
 		(unsigned int)mw_w, (unsigned int)mw_h, 2,
@@ -1778,11 +1776,11 @@ launch(void)
 					input[INPUTMAX-1] = '\0';
 					len = (int)strlen(input);
 				}
-				goto refilter;
+				refilter = 1;
 			} else if(ks == XK_BackSpace){
 				if(len > 0) input[--len] = '\0';
 				fsel = 0;
-				goto refilter;
+				refilter = 1;
 			} else if(ks == XK_Down){
 				if(fsel < nfilt - 1) fsel++;
 				exec_draw(mw, xd, filtered, nfilt, fsel,
@@ -1797,9 +1795,9 @@ launch(void)
 					input[len] = '\0';
 				}
 				fsel = 0;
-				goto refilter;
+				refilter = 1;
 			}
-			refilter:
+			if(refilter){
 				exec_filter(filtered, &nfilt, maxlines,
 					input, len);
 				if(fsel >= nfilt) fsel = nfilt - 1;
@@ -1811,7 +1809,8 @@ launch(void)
 				XftDrawChange(xd, mw);
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
-		} else if(ev.type == ButtonPress) {
+			}
+		} else if(ev.type == ButtonPress){
 			done = 1;
 		}
 	}
@@ -1852,6 +1851,14 @@ buttonpress(XButtonEvent *e)
 				switch_to(curdesk + 1);
 			break;
 		}
+		return;
+	}
+
+	c = winclient(e->window);
+	if(c){
+		promote(c);
+		focus(c);
+		XAllowEvents(dpy, ReplayPointer, e->time);
 		return;
 	}
 
