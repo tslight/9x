@@ -787,7 +787,7 @@ delete(Client *c)
 }
 
 static void
-togglemax(Client *c)
+maximize(Client *c)
 {
 	if(!c || c->fullscreen)
 		return;
@@ -814,7 +814,7 @@ togglemax(Client *c)
 }
 
 static void
-togglefullscreen(Client *c)
+fullscreen(Client *c)
 {
 	if(!c)
 		return;
@@ -1079,7 +1079,7 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			if(ev.xbutton.button == Button3){
 				outline_hide();
 				XUngrabPointer(dpy, CurrentTime);
-				togglemax(c);
+				maximize(c);
 				return;
 			}
 			outline_hide();
@@ -1691,12 +1691,10 @@ launch(void)
 	int x, y, maxlines;
 	size_t i;
 
-	if(!xftfont)
-		return;
+	if(!xftfont) return;
 	build_execs();
 	filtered = malloc(nexecs * sizeof(char *));
-	if(!filtered)
-		return;
+	if(!filtered) return;
 
 	itemh = xftfont->ascent + xftfont->descent;
 	input[0] = '\0';
@@ -1745,40 +1743,13 @@ launch(void)
 		free(filtered);
 		return;
 	}
-	XGrabPointer(dpy, mw, True,
-		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
-		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 
 	exec_draw(mw, xd, filtered, nfilt, fsel, input, itemh, mw_w);
 
 	done = 0;
 	while(!done){
 		XNextEvent(dpy, &ev);
-		switch(ev.type){
-		case Expose:
-			break;
-		case MotionNotify: {
-			int ny = ev.xmotion.y - itemh;
-			int old = fsel;
-			if(ny >= 0 && ny < nfilt * itemh)
-				fsel = ny / itemh;
-			if(fsel != old)
-				exec_draw(mw, xd, filtered, nfilt, fsel,
-					input, itemh, mw_w);
-			break;
-		}
-		case ButtonRelease:
-			if(nfilt > 0 && fsel >= 0 && fsel < nfilt){
-				strncpy(chosen, filtered[fsel], INPUTMAX-1);
-				chosen[INPUTMAX-1] = '\0';
-			}
-			done = 1;
-			break;
-		case ButtonPress:
-			if(ev.xbutton.window != mw)
-				done = 1;
-			break;
-		case KeyPress: {
+		if (ev.type == KeyPress){
 			char buf[32];
 			KeySym ks;
 			int count;
@@ -1829,34 +1800,15 @@ launch(void)
 				XftDrawChange(xd, mw);
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
-			} else if(ks == XK_u
-			&& (ev.xkey.state & ControlMask)){
-				len = 0; input[0] = '\0'; fsel = 0;
-				exec_filter(filtered, &nfilt, maxlines,
-					input, len);
-				if(fsel >= nfilt) fsel = nfilt - 1;
-				if(fsel < 0) fsel = 0;
-				mw_h = itemh * (1 + nfilt);
-				XMoveResizeWindow(dpy, mw, x, y,
-					(unsigned int)mw_w,
-					(unsigned int)mw_h);
-				XftDrawChange(xd, mw);
-				exec_draw(mw, xd, filtered, nfilt, fsel,
-					input, itemh, mw_w);
-			} else if((ks == XK_n
-			&& (ev.xkey.state & ControlMask))
-			|| ks == XK_Down){
+			} else if(ks == XK_Down){
 				if(fsel < nfilt - 1) fsel++;
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
-			} else if((ks == XK_p
-			&& (ev.xkey.state & ControlMask))
-			|| ks == XK_Up){
+			} else if(ks == XK_Up){
 				if(fsel > 0) fsel--;
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
-			} else if(count > 0
-			&& buf[0] >= ' ' && buf[0] <= '~'){
+			} else if(count > 0 && buf[0] >= ' ' && buf[0] <= '~'){
 				if(len < INPUTMAX - 1){
 					input[len++] = buf[0];
 					input[len] = '\0';
@@ -1874,12 +1826,9 @@ launch(void)
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
 			}
-			break;
-		}
 		}
 	}
 
-	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
@@ -2016,10 +1965,10 @@ keypress(XKeyEvent *e)
 		delete(current);
 		break;
 	case XK_F10:
-		togglemax(current);
+		maximize(current);
 		break;
 	case XK_F11:
-		togglefullscreen(current);
+		fullscreen(current);
 		break;
 	case XK_space:
 		launch();
