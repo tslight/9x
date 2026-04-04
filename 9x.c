@@ -247,16 +247,6 @@ xft_textwidth(const char *s, int len)
 }
 
 static int
-bar_textwidth(const char *s)
-{
-	XGlyphInfo ext;
-
-	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)s,
-		(int)strlen(s), &ext);
-	return ext.xOff;
-}
-
-static int
 handler(Display *d, XErrorEvent *e)
 {
 	(void)d;
@@ -370,8 +360,9 @@ bar_redraw(void)
 	else
 		bbuf[0] = '\0';
 
-	w = (unsigned int)(bar_textwidth(dbuf) + bar_textwidth(bbuf)
-		+ bar_textwidth(tbuf)) + BAR_PAD * 2;
+	w = (unsigned int)(xft_textwidth(dbuf, (int)strlen(dbuf))
+		+ xft_textwidth(bbuf, (int)strlen(bbuf))
+		+ xft_textwidth(tbuf, (int)strlen(tbuf))) + BAR_PAD * 2;
 	h = (unsigned int)(xftfont->ascent + xftfont->descent) + BAR_PAD * 2;
 	if(w != barw || h != barh){
 		barw = w;
@@ -393,12 +384,12 @@ bar_redraw(void)
 
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
 		(const FcChar8 *)dbuf, (int)strlen(dbuf));
-	x += bar_textwidth(dbuf);
+	x += xft_textwidth(dbuf, (int)strlen(dbuf));
 
 	if(bbuf[0]){
 		XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
 			(const FcChar8 *)bbuf, (int)strlen(bbuf));
-		x += bar_textwidth(bbuf);
+		x += xft_textwidth(bbuf, (int)strlen(bbuf));
 	}
 
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
@@ -786,9 +777,12 @@ unmanage(Client *c)
 }
 
 static void
-slay(Client *c)
+delete(Client *c)
 {
-	if(c)
+    if(!c) return;
+	if(c->proto & Pdelete)
+		sendcmessage(c->win, wm_protocols, wm_delete);
+	else
 		XKillClient(dpy, c->win);
 }
 
@@ -1437,7 +1431,7 @@ winmenu(int mx, int my)
 				break;
 			case Button2:
 				if(sel >= 0 && sel < ncls)
-					slay(cls[sel]);
+					delete(cls[sel]);
 				break;
 			case Button3:
 				if(sel >= 0 && sel < ncls)
@@ -1515,8 +1509,6 @@ deskmenu(int mx, int my)
 	XGrabPointer(dpy, mw, True,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	XGrabKeyboard(dpy, mw, True,
-		GrabModeAsync, GrabModeAsync, CurrentTime);
 
 	armed = 0;
 	sel = curdesk;
@@ -1530,11 +1522,6 @@ deskmenu(int mx, int my)
 			menu_draw(mw, xd, desknames, NDESKS,
 				sel, itemh, mw_w);
 			break;
-		case KeyPress: {
-			KeySym ks = XLookupKeysym(&ev.xkey, 0);
-			if(ks == XK_Escape) done = 1;
-			break;
-		}
 		case MotionNotify:
 			if(armed){
 				int ny = ev.xmotion.y;
@@ -1558,7 +1545,6 @@ deskmenu(int mx, int my)
 			break;
 		}
 	}
-	XUngrabKeyboard(dpy, CurrentTime);
 	XUngrabPointer(dpy, CurrentTime);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
@@ -1940,7 +1926,7 @@ buttonpress(XButtonEvent *e)
 			return;
 		}
 		if(e->button == 2 && (e->state & MOD)){
-			slay(c);
+			delete(c);
 			return;
 		}
 		if(e->button == 3 && (e->state & MOD)){
@@ -1961,7 +1947,7 @@ buttonpress(XButtonEvent *e)
 		if(e->button == 1)
 			pullclient(c, bl, e);
 		else if(e->button == 2)
-			slay(c);
+			delete(c);
 		else if(e->button == 3)
 			moveclient(c, e);
 		return;
@@ -2027,7 +2013,7 @@ keypress(XKeyEvent *e)
 		tab_show();
 		break;
 	case XK_F4:
-		slay(current);
+		delete(current);
 		break;
 	case XK_F10:
 		togglemax(current);
@@ -2158,7 +2144,7 @@ grabkeys(void)
 
 	tab   = XKeysymToKeycode(dpy, XK_Tab);
 	space = XKeysymToKeycode(dpy, XK_space);
-	f4	  = XKeysymToKeycode(dpy, XK_F4);
+	f4    = XKeysymToKeycode(dpy, XK_F4);
 	f10   = XKeysymToKeycode(dpy, XK_F10);
 	f11   = XKeysymToKeycode(dpy, XK_F11);
 	for(j = 0; j < NDESKS; j++)
@@ -2202,8 +2188,8 @@ setup_bar(void)
 	fat.tm_hour = 20;
 	fat.tm_year = 100;
 	strftime(tbuf, sizeof tbuf, TIMEFMT, &fat);
-	snprintf(maxstr, sizeof maxstr, "[10] !100%% %s", tbuf);
-	barw = (unsigned int)bar_textwidth(maxstr) + BAR_PAD * 2;
+	snprintf(maxstr, sizeof maxstr, "[9] !100%% %s", tbuf);
+	barw = (unsigned int)xft_textwidth(maxstr, (int)strlen(maxstr)) + BAR_PAD * 2;
 	barh = (unsigned int)(xftfont->ascent + xftfont->descent) + BAR_PAD*2;
 
 	wa.override_redirect = True;
@@ -2253,7 +2239,7 @@ setup(void)
 
 	xftfont = XftFontOpenName(dpy, screen, XFTFONT);
 	if(!xftfont)
-		err(1, "XftFontOpenName failed for %s", XFTFONT);
+		errx(1, "XftFontOpenName failed for %s", XFTFONT);
 
 	xft_menu_fg    = getxftcolor(COL_MENU_FG);
 	xft_menu_fgs   = getxftcolor(COL_MENU_FG_S);
