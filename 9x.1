@@ -3,7 +3,7 @@
 .Os
 .Sh NAME
 .Nm 9x
-.Nd more scummy and rat infested than rio. Just say NEIN.
+more scummy and rat infested than rio. Just say NEIN.
 .Sh SYNOPSIS
 .Nm
 .Op Fl v
@@ -34,68 +34,59 @@ Cycle desktops.
 .It Button 1
 Focus.
 .It Button 2
-Delete.
+Slay.
 .It Button 3
-Re-sweep.
+Sweep.
 .El
 .Ss Window Borders
 .Bl -tag -width "Button 1"
 .It Button 1
 Resize.
 .It Button 2
-Toggle maximize.
+Slay.
 .It Button 3
 Move.
-.It B1 + B2
-Re-sweep.
 .It B1 + B3
-Delete.
+Maximize.
 .El
-.Ss Inside Windows
+.Ss Windows
 .Bl -tag -width "Button 1"
 .It Button 1
 Focus.
 .It Alt+B1
 Resize.
+.It Alt+B2
+Slay.
 .It Alt+B3
 Move.
 .El
 .Sh KEYBOARD
 .Bl -tag -width "Alt+Shift+[1..0]"
-.It Alt+Return
-New terminal.
 .It Alt+Space
 Launch.
-.It Alt+Shift+Space
-Launch in sweep mode.
 .It Alt+Tab
 Switch windows.
-.It Alt+q
-Delete.
-.It Alt+m
-Toggle aximize.
+.It Alt+Shift+Tab
+Reverse switch windows.
+.It Alt+F4
+Slay.
+.It Alt+F10
+Maximize.
 .It Alt+F11
-Toggle fullscreen.
-.It Alt+[1..0]
-Desktop 1\(en10.
-.It Alt+Shift+[1..0]
-Window to desktop 1\(en10.
-.It Alt+Left
-Previous desktop.
-.It Alt+Right
-Next desktop.
+Fullscreen.
+.It Alt+[1..9]
+Desktop 1\(en9.
+.It Alt+Shift+[1..9]
+Window to desktop 1\(en9.
 .El
 .Sh LAUNCHER
-Search all executables in
-.Ic PATH
-.Pp
 .Bl -tag -width "Backspace"
 .It Return
 Launch.
 .It Tab
 Complete.
 .It Backspace
-Delete.
+Slay.
 .It Ctrl+u
 Clear.
 .It Down
@@ -110,7 +101,7 @@ Cancel.
 .It
 Desktop number.
 .It
-Battery percentage, ! indicates discharging.
+Battery percentage.
 .It
 Date & time.
 .El

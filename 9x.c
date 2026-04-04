@@ -51,7 +51,7 @@
 #define TERM        "xterm"
 #define MAXCLIENTS  512
 #define INPUTMAX    512
-#define NDESKS      10
+#define NDESKS      9
 #define BAR_PAD     2
 #define BAR_REFRESH 60
 #define TIMEFMT     "%H:%M %a %d/%m"
@@ -166,7 +166,7 @@ static unsigned int  sweep_dx, sweep_dy;
 static int           curdesk;
 static Client       *deskfocus[NDESKS];
 static char         *desknames[NDESKS] = {
-	"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"
+	"1", "2", "3", "4", "5", "6", "7", "8", "9"
 };
 
 static Window        barwin;
@@ -786,18 +786,7 @@ unmanage(Client *c)
 }
 
 static void
-deleteclient(Client *c)
-{
-	if(!c)
-		return;
-	if(c->proto & Pdelete)
-		sendcmessage(c->win, wm_protocols, wm_delete);
-	else
-		XKillClient(dpy, c->win);
-}
-
-static void
-killclient(Client *c)
+slay(Client *c)
 {
 	if(c)
 		XKillClient(dpy, c->win);
@@ -1096,13 +1085,7 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			if(ev.xbutton.button == Button3){
 				outline_hide();
 				XUngrabPointer(dpy, CurrentTime);
-				deleteclient(c);
-				return;
-			}
-			if(ev.xbutton.button == Button2){
-				outline_hide();
-				XUngrabPointer(dpy, CurrentTime);
-				reshapeclient(c);
+				togglemax(c);
 				return;
 			}
 			outline_hide();
@@ -1454,7 +1437,7 @@ winmenu(int mx, int my)
 				break;
 			case Button2:
 				if(sel >= 0 && sel < ncls)
-					killclient(cls[sel]);
+					slay(cls[sel]);
 				break;
 			case Button3:
 				if(sel >= 0 && sel < ncls)
@@ -1708,7 +1691,7 @@ exec_draw(Window mw, XftDraw *xd, char **filtered,
 }
 
 static void
-launch(int withsweep)
+launch(void)
 {
 	Window mw;
 	XSetWindowAttributes sa;
@@ -1749,7 +1732,7 @@ launch(int withsweep)
 	if(mw_w < 200) mw_w = 200;
 	if(mw_w > (int)sw - 40) mw_w = (int)sw - 40;
 
-	/* launcher is centred horizontally, anchored to the bottom */
+	/* launcher is centred horizontally, anchored to top */
 	x = ((int)sw - mw_w) / 2;
 	mw_h = itemh * (1 + nfilt);
 	y = 0;
@@ -1917,12 +1900,8 @@ launch(int withsweep)
 	XFlush(dpy);
 	free(filtered);
 
-	if(chosen[0]){
-		if(withsweep)
-			sweepspawn(chosen);
-		else
-			spawn(chosen);
-	}
+	if(chosen[0])
+		sweepspawn(chosen);
 }
 
 static void
@@ -1960,6 +1939,10 @@ buttonpress(XButtonEvent *e)
 			pullclient(c, BorderSSE, e);
 			return;
 		}
+		if(e->button == 2 && (e->state & MOD)){
+			slay(c);
+			return;
+		}
 		if(e->button == 3 && (e->state & MOD)){
 			moveclient(c, e);
 			return;
@@ -1978,7 +1961,7 @@ buttonpress(XButtonEvent *e)
 		if(e->button == 1)
 			pullclient(c, bl, e);
 		else if(e->button == 2)
-			togglemax(c);
+			slay(c);
 		else if(e->button == 3)
 			moveclient(c, e);
 		return;
@@ -2009,7 +1992,7 @@ keypress(XKeyEvent *e)
 	KeySym ks;
 	static const KeySym deskkeys[NDESKS] = {
 		XK_1, XK_2, XK_3, XK_4, XK_5,
-		XK_6, XK_7, XK_8, XK_9, XK_0
+		XK_6, XK_7, XK_8, XK_9
 	};
 	int i;
 
@@ -2043,28 +2026,17 @@ keypress(XKeyEvent *e)
 		XAllowEvents(dpy, AsyncKeyboard, e->time);
 		tab_show();
 		break;
-	case XK_q:
-		deleteclient(current);
+	case XK_F4:
+		slay(current);
 		break;
-	case XK_m:
+	case XK_F10:
 		togglemax(current);
 		break;
 	case XK_F11:
 		togglefullscreen(current);
 		break;
 	case XK_space:
-		launch((e->state & ShiftMask) != 0);
-		break;
-	case XK_Return:
-		spawn(TERM);
-		break;
-	case XK_Left:
-		if(curdesk > 0)
-			switch_to(curdesk - 1);
-		break;
-	case XK_Right:
-		if(curdesk < NDESKS - 1)
-			switch_to(curdesk + 1);
+		launch();
 		break;
 	}
 }
@@ -2177,20 +2149,17 @@ grabkeys(void)
 {
 	unsigned int mods[] = { 0, LockMask, Mod2Mask, LockMask|Mod2Mask };
 	unsigned int i, j;
-	KeyCode tab, q, m, space, ret, left, right, f11;
+	KeyCode tab, space, f4, f10, f11;
 	KeyCode dk[NDESKS];
 	static const KeySym deskkeys[NDESKS] = {
 		XK_1, XK_2, XK_3, XK_4, XK_5,
-		XK_6, XK_7, XK_8, XK_9, XK_0
+		XK_6, XK_7, XK_8, XK_9
 	};
 
 	tab   = XKeysymToKeycode(dpy, XK_Tab);
-	q     = XKeysymToKeycode(dpy, XK_q);
-	m     = XKeysymToKeycode(dpy, XK_m);
 	space = XKeysymToKeycode(dpy, XK_space);
-	ret   = XKeysymToKeycode(dpy, XK_Return);
-	left  = XKeysymToKeycode(dpy, XK_Left);
-	right = XKeysymToKeycode(dpy, XK_Right);
+	f4	  = XKeysymToKeycode(dpy, XK_F4);
+	f10   = XKeysymToKeycode(dpy, XK_F10);
 	f11   = XKeysymToKeycode(dpy, XK_F11);
 	for(j = 0; j < NDESKS; j++)
 		dk[j] = XKeysymToKeycode(dpy, deskkeys[j]);
@@ -2200,21 +2169,13 @@ grabkeys(void)
 			True, GrabModeAsync, GrabModeSync);
 		XGrabKey(dpy, tab, MOD|ShiftMask|mods[i], root,
 			True, GrabModeAsync, GrabModeSync);
-		XGrabKey(dpy, q, MOD|mods[i], root,
+		XGrabKey(dpy, f4, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
-		XGrabKey(dpy, m, MOD|mods[i], root,
+		XGrabKey(dpy, f10, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, f11, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, space, MOD|mods[i], root,
-			True, GrabModeAsync, GrabModeAsync);
-		XGrabKey(dpy, space, MOD|ShiftMask|mods[i], root,
-			True, GrabModeAsync, GrabModeAsync);
-		XGrabKey(dpy, ret, MOD|mods[i], root,
-			True, GrabModeAsync, GrabModeAsync);
-		XGrabKey(dpy, left, MOD|mods[i], root,
-			True, GrabModeAsync, GrabModeAsync);
-		XGrabKey(dpy, right, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
 		for(j = 0; j < NDESKS; j++){
 			XGrabKey(dpy, dk[j], MOD|mods[i], root,
