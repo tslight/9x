@@ -2455,9 +2455,8 @@ int
 main(int argc, char *argv[])
 {
 	if(argc > 1){
-		if(strcmp(argv[1], "-v") == 0
-		|| strcmp(argv[1], "-version") == 0){
-			fprintf(stderr, "9x-" VERSION "\n");
+		if(strcmp(argv[1], "-v") == 0){
+			fprintf(stderr, "9x more scum than rio: " VERSION "\n");
 			return 0;
 		}
 		fprintf(stderr, "usage: 9x [-v]\n");

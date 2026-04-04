@@ -1,5 +1,5 @@
 PROG	= 9x
-VERSION = 0.1
+VERSION = v0.0.9
 PREFIX	?= /usr/local
 MANDIR	?= ${PREFIX}/man/man1
 CFLAGS	?= -O2 -pedantic -std=c11

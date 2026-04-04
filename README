@@ -1,11 +1,20 @@
-9x more scummy and rat infested than rio. Just say NEIN.
+NAME
+	9x - more scummy and rat infested than rio. Just say NEIN.
 
-Cursed cursors and rabbits of Caerbannog lurking in dark corners...
+SYNOPSIS
+	9x [-v]
 
-A stinky X11 window manager and shitty rio rip-off.  
+DESCRIPTION
+	9x is a stinky X11 window manager and shitty rio rip-off.
+	It provides far more than you bargained for.
+	Do 9 things and do them poorly.
 
-Provides far more than you bargined for.  
+OPTIONS
+	-v	Erase computer. Weep.
 
-Do 9 things and do them poorly.
+CUSTOMISATION
+	Read the goddamn src(1) you filthy heathen.
 
-Read the goddamn source you filthy heathen.
+BUGS
+	Programs that depend on EWMH/ICCCM may shit the bed.
+	Cursed cursors & Caerbannog bunnies lurking in dark corners...
