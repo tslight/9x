@@ -165,9 +165,6 @@ static unsigned int  sweep_dx, sweep_dy;
 
 static int           curdesk;
 static Client       *deskfocus[NDESKS];
-static char         *desknames[NDESKS] = {
-	"1", "2", "3", "4", "5", "6", "7", "8", "9"
-};
 
 static Window        barwin;
 static Pixmap        barpix;
@@ -777,9 +774,9 @@ unmanage(Client *c)
 }
 
 static void
-delete(Client *c)
+closeclient(Client *c)
 {
-    if(!c) return;
+	if(!c) return;
 	if(c->proto & Pdelete)
 		sendcmessage(c->win, wm_protocols, wm_delete);
 	else
@@ -1431,7 +1428,7 @@ winmenu(int mx, int my)
 				break;
 			case Button2:
 				if(sel >= 0 && sel < ncls)
-					delete(cls[sel]);
+					closeclient(cls[sel]);
 				break;
 			case Button3:
 				if(sel >= 0 && sel < ncls)
@@ -1471,6 +1468,13 @@ deskmenu(int mx, int my)
 	XftDraw *xd;
 	int itemh, mw_w, mw_h, x, y, i;
 	int sel, done, armed;
+	char dnames[NDESKS][4];
+	char *dp[NDESKS];
+
+	for(i = 0; i < NDESKS; i++){
+		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
+		dp[i] = dnames[i];
+	}
 
 	if(!xftfont)
 		return;
@@ -1478,8 +1482,7 @@ deskmenu(int mx, int my)
 	itemh = xftfont->ascent + xftfont->descent;
 	mw_w = 0;
 	for(i = 0; i < NDESKS; i++){
-		int tw = xft_textwidth(desknames[i],
-			(int)strlen(desknames[i])) + 8;
+		int tw = xft_textwidth(dp[i], (int)strlen(dp[i])) + 4;
 		if(tw > mw_w) mw_w = tw;
 	}
 	if(mw_w < 80) mw_w = 80;
@@ -1494,7 +1497,7 @@ deskmenu(int mx, int my)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | KeyPressMask | ButtonPressMask
+	sa.event_mask = ExposureMask | ButtonPressMask
 		| PointerMotionMask | ButtonReleaseMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
@@ -1513,14 +1516,13 @@ deskmenu(int mx, int my)
 	armed = 0;
 	sel = curdesk;
 	done = 0;
-	menu_draw(mw, xd, desknames, NDESKS, sel, itemh, mw_w);
+	menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
 
 	while(!done){
 		XNextEvent(dpy, &ev);
 		switch(ev.type){
 		case Expose:
-			menu_draw(mw, xd, desknames, NDESKS,
-				sel, itemh, mw_w);
+			menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
 			break;
 		case MotionNotify:
 			if(armed){
@@ -1529,8 +1531,7 @@ deskmenu(int mx, int my)
 				if(ny >= 0 && ny < NDESKS * itemh)
 					sel = ny / itemh;
 				if(sel != old)
-					menu_draw(mw, xd, desknames, NDESKS,
-						sel, itemh, mw_w);
+					menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
 			}
 			break;
 		case ButtonRelease:
@@ -1743,13 +1744,15 @@ launch(void)
 		free(filtered);
 		return;
 	}
+	XGrabPointer(dpy, mw, True, ButtonPressMask, GrabModeAsync,
+		GrabModeAsync, None, None, CurrentTime);
 
 	exec_draw(mw, xd, filtered, nfilt, fsel, input, itemh, mw_w);
 
 	done = 0;
 	while(!done){
 		XNextEvent(dpy, &ev);
-		if (ev.type == KeyPress){
+		if(ev.type == KeyPress){
 			char buf[32];
 			KeySym ks;
 			int count;
@@ -1775,31 +1778,11 @@ launch(void)
 					input[INPUTMAX-1] = '\0';
 					len = (int)strlen(input);
 				}
-				exec_filter(filtered, &nfilt, maxlines,
-					input, len);
-				if(fsel >= nfilt) fsel = nfilt - 1;
-				if(fsel < 0) fsel = 0;
-				mw_h = itemh * (1 + nfilt);
-				XMoveResizeWindow(dpy, mw, x, y,
-					(unsigned int)mw_w,
-					(unsigned int)mw_h);
-				XftDrawChange(xd, mw);
-				exec_draw(mw, xd, filtered, nfilt, fsel,
-					input, itemh, mw_w);
+				goto refilter;
 			} else if(ks == XK_BackSpace){
 				if(len > 0) input[--len] = '\0';
 				fsel = 0;
-				exec_filter(filtered, &nfilt, maxlines,
-					input, len);
-				if(fsel >= nfilt) fsel = nfilt - 1;
-				if(fsel < 0) fsel = 0;
-				mw_h = itemh * (1 + nfilt);
-				XMoveResizeWindow(dpy, mw, x, y,
-					(unsigned int)mw_w,
-					(unsigned int)mw_h);
-				XftDrawChange(xd, mw);
-				exec_draw(mw, xd, filtered, nfilt, fsel,
-					input, itemh, mw_w);
+				goto refilter;
 			} else if(ks == XK_Down){
 				if(fsel < nfilt - 1) fsel++;
 				exec_draw(mw, xd, filtered, nfilt, fsel,
@@ -1814,6 +1797,9 @@ launch(void)
 					input[len] = '\0';
 				}
 				fsel = 0;
+				goto refilter;
+			}
+			refilter:
 				exec_filter(filtered, &nfilt, maxlines,
 					input, len);
 				if(fsel >= nfilt) fsel = nfilt - 1;
@@ -1825,18 +1811,19 @@ launch(void)
 				XftDrawChange(xd, mw);
 				exec_draw(mw, xd, filtered, nfilt, fsel,
 					input, itemh, mw_w);
-			}
+		} else if(ev.type == ButtonPress) {
+			done = 1;
 		}
 	}
 
 	XUngrabKeyboard(dpy, CurrentTime);
+	XUngrabPointer(dpy, CurrentTime);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
 	XFlush(dpy);
 	free(filtered);
 
-	if(chosen[0])
-		sweepspawn(chosen);
+	if(chosen[0]) sweepspawn(chosen);
 }
 
 static void
@@ -1868,26 +1855,6 @@ buttonpress(XButtonEvent *e)
 		return;
 	}
 
-	c = winclient(e->window);
-	if(c){
-		if(e->button == 1 && (e->state & MOD)){
-			pullclient(c, BorderSSE, e);
-			return;
-		}
-		if(e->button == 2 && (e->state & MOD)){
-			delete(c);
-			return;
-		}
-		if(e->button == 3 && (e->state & MOD)){
-			moveclient(c, e);
-			return;
-		}
-		promote(c);
-		focus(c);
-		XAllowEvents(dpy, ReplayPointer, e->time);
-		return;
-	}
-
 	c = frameclient(e->window);
 	if(!c)
 		return;
@@ -1896,7 +1863,7 @@ buttonpress(XButtonEvent *e)
 		if(e->button == 1)
 			pullclient(c, bl, e);
 		else if(e->button == 2)
-			delete(c);
+			closeclient(c);
 		else if(e->button == 3)
 			moveclient(c, e);
 		return;
@@ -1962,7 +1929,7 @@ keypress(XKeyEvent *e)
 		tab_show();
 		break;
 	case XK_F4:
-		delete(current);
+		closeclient(current);
 		break;
 	case XK_F10:
 		maximize(current);
