@@ -588,7 +588,7 @@ applylayout(Client *c)
 {
 	if(c->fullscreen){
 		XMoveResizeWindow(dpy, c->frame, 0, 0, U(sw), U(sh));
-		XMoveResizeWindow(dpy, c->win, 0, 0, U(sw), U(sh));
+		XMoveResizeWindow(dpy, c->win, 0, 0, U(c->dx), U(c->dy));
 	} else {
 		XMoveResizeWindow(dpy, c->frame,
 			c->x - c->border, c->y - c->border,
@@ -813,6 +813,10 @@ togglefullscreen(Client *c)
 			c->ody = c->dy;
 		}
 		c->fullscreen = 1;
+		c->x = 0;
+		c->y = 0;
+		c->dx = sw;
+		c->dy = sh;
 		applylayout(c);
 		sendconfig(c);
 		XRaiseWindow(dpy, c->frame);
