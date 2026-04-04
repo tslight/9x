@@ -938,6 +938,23 @@ sweep(int *rx, int *ry, int *rdx, int *rdy)
 }
 
 static void
+sweepspawn(const char *cmd)
+{
+	int bx, by, bdx, bdy;
+
+	if(!sweep(&bx, &by, &bdx, &bdy)){
+		spawn(cmd);
+		return;
+	}
+	sweep_x = bx + BORDER;
+	sweep_y = by + BORDER;
+	sweep_dx = bdx - 2 * BORDER;
+	sweep_dy = bdy - 2 * BORDER;
+	sweep_pending = 1;
+	spawn(cmd);
+}
+
+static void
 reshapeclient(Client *c)
 {
 	int bx, by, bdx, bdy;
@@ -1104,61 +1121,8 @@ moveclient(Client *c, XButtonEvent *start)
 static void
 sweepnew(XButtonEvent *start)
 {
-	XEvent ev;
-	int sx, sy, done, status;
-	int bx, by, bdx, bdy, drawn;
-
-	status = XGrabPointer(dpy, root, False,
-		ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
-		GrabModeAsync, GrabModeAsync, root, c_sweep, CurrentTime);
-	if(status != GrabSuccess)
-		return;
-
-	sx = start->x_root;
-	sy = start->y_root;
-	bx = by = bdx = bdy = drawn = done = 0;
-
-	while(!done){
-		XMaskEvent(dpy, ButtonPressMask | ButtonReleaseMask
-			| PointerMotionMask, &ev);
-		switch(ev.type){
-		case MotionNotify: {
-			int x1 = MIN(sx, ev.xmotion.x_root);
-			int y1 = MIN(sy, ev.xmotion.y_root);
-			int x2 = MAX(sx, ev.xmotion.x_root);
-			int y2 = MAX(sy, ev.xmotion.y_root);
-
-			bx = x1; by = y1;
-			bdx = x2 - x1; bdy = y2 - y1;
-			if(bdx >= 2 * BORDER && bdy >= 2 * BORDER){
-				outline_show(bx, by, bdx, bdy);
-				drawn = 1;
-			} else if(drawn){
-				outline_hide();
-				drawn = 0;
-			}
-			XFlush(dpy);
-			break;
-		}
-		case ButtonRelease:
-			if(drawn) outline_hide();
-			XUngrabPointer(dpy, CurrentTime);
-			if(bdx > 2 * BORDER + 10 && bdy > 2 * BORDER + 10){
-				sweep_x = bx + BORDER;
-				sweep_y = by + BORDER;
-				sweep_dx = bdx - 2 * BORDER;
-				sweep_dy = bdy - 2 * BORDER;
-				sweep_pending = 1;
-				spawn(TERM);
-			}
-			return;
-		case ButtonPress:
-			done = 1;
-			break;
-		}
-	}
-	if(drawn) outline_hide();
-	XUngrabPointer(dpy, CurrentTime);
+	(void)start;
+	sweepspawn(TERM);
 }
 
 static void
@@ -1596,7 +1560,7 @@ exec_filter(char **filtered, int *nfilt, int maxlines,
 }
 
 static void
-launch_at(int mx, int my, int from_button)
+launch_at(int mx, int my, int from_button, int dosweep)
 {
 	Window mw;
 	XSetWindowAttributes sa;
@@ -1604,6 +1568,7 @@ launch_at(int mx, int my, int from_button)
 	XftDraw *xd;
 	XftColor selbg;
 	char input[LAUNCH_MAX];
+	char chosen[LAUNCH_MAX];
 	char **filtered;
 	int len, done, armed;
 	int mw_w, mw_h, itemh, nfilt, fsel;
@@ -1619,6 +1584,7 @@ launch_at(int mx, int my, int from_button)
 
 	itemh = xftfont->ascent + xftfont->descent + MENUH_PAD;
 	input[0] = '\0';
+	chosen[0] = '\0';
 	len = 0;
 	fsel = 0;
 	centered = !from_button;
@@ -1700,8 +1666,10 @@ launch_at(int mx, int my, int from_button)
 				armed = 1;
 				break;
 			}
-			if(nfilt > 0 && fsel >= 0 && fsel < nfilt)
-				spawn(filtered[fsel]);
+			if(nfilt > 0 && fsel >= 0 && fsel < nfilt){
+				strncpy(chosen, filtered[fsel], LAUNCH_MAX - 1);
+				chosen[LAUNCH_MAX - 1] = '\0';
+			}
 			done = 1;
 			break;
 		case ButtonPress:
@@ -1718,10 +1686,13 @@ launch_at(int mx, int my, int from_button)
 			if(ks == XK_Escape){
 				done = 1;
 			} else if(ks == XK_Return || ks == XK_KP_Enter){
-				if(nfilt > 0 && fsel >= 0)
-					spawn(filtered[fsel]);
-				else if(len > 0)
-					spawn(input);
+				if(nfilt > 0 && fsel >= 0){
+					strncpy(chosen, filtered[fsel], LAUNCH_MAX - 1);
+					chosen[LAUNCH_MAX - 1] = '\0';
+				} else if(len > 0){
+					strncpy(chosen, input, LAUNCH_MAX - 1);
+					chosen[LAUNCH_MAX - 1] = '\0';
+				}
 				done = 1;
 			} else if(ks == XK_Tab){
 				if(nfilt > 0 && fsel >= 0 && fsel < nfilt){
@@ -1778,13 +1749,22 @@ launch_at(int mx, int my, int from_button)
 		}
 		}
 	}
+
 	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	XftColorFree(dpy, DefaultVisual(dpy, screen),
 		DefaultColormap(dpy, screen), &selbg);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
+	XFlush(dpy);
 	free(filtered);
+
+	if(chosen[0]){
+		if(dosweep)
+			sweepspawn(chosen);
+		else
+			spawn(chosen);
+	}
 }
 
 static void
@@ -1912,7 +1892,10 @@ keypress(XKeyEvent *e)
 		togglefullscreen(current);
 		break;
 	case XK_space:
-		launch_at(0, 0, 0);
+		if(e->state & ShiftMask)
+			launch_at(0, 0, 0, 1);
+		else
+			launch_at(0, 0, 0, 0);
 		break;
 	case XK_Return:
 		spawn(TERM);
@@ -2061,6 +2044,8 @@ grabkeys(void)
 		XGrabKey(dpy, f11, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, space, MOD|mods[i], root,
+			True, GrabModeAsync, GrabModeAsync);
+		XGrabKey(dpy, space, MOD|ShiftMask|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, ret, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
