@@ -622,6 +622,36 @@ switch_to(int n)
 	bar_redraw();
 }
 
+static void
+focusnext(void)
+{
+	Client *c;
+
+	current = NULL;
+	for(c = clients; c; c = c->next)
+		if(c->virt == curdesk){
+			focus(c);
+			return;
+		}
+	XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
+}
+
+static void
+sendtodesktop(Client *c, int n)
+{
+	if(!c || n < 0 || n >= NDESKS || n == curdesk)
+		return;
+	c->virt = n;
+	XUnmapWindow(dpy, c->frame);
+	if(deskfocus[curdesk] == c)
+		deskfocus[curdesk] = NULL;
+	deskfocus[n] = c;
+	if(current == c)
+		focusnext();
+	raisebar();
+	bar_redraw();
+}
+
 static Client *
 manage(Window w)
 {
@@ -724,20 +754,8 @@ unmanage(Client *c)
 	for(i = 0; i < NDESKS; i++)
 		if(deskfocus[i] == c)
 			deskfocus[i] = NULL;
-	if(current == c){
-		current = NULL;
-		{
-			Client *cc;
-			for(cc = clients; cc; cc = cc->next)
-				if(cc->virt == curdesk){
-					focus(cc);
-					break;
-				}
-		}
-		if(!current)
-			XSetInputFocus(dpy, root, RevertToPointerRoot,
-				CurrentTime);
-	}
+	if(current == c)
+		focusnext();
 	raisebar();
 	if(c->label)
 		XFree(c->label);
@@ -753,6 +771,14 @@ deleteclient(Client *c)
 		sendcmessage(c->win, wm_protocols, wm_delete);
 	else
 		XKillClient(dpy, c->win);
+}
+
+static void
+killclient(Client *c)
+{
+	if(!c)
+		return;
+	XKillClient(dpy, c->win);
 }
 
 static void
@@ -1261,6 +1287,52 @@ static void winmenu(int, int);
 static void deskmenu(int, int);
 
 static void
+handleevent_unmapordestroy(XEvent *ev)
+{
+	Client *c;
+
+	if(ev->type == UnmapNotify){
+		c = winclient(ev->xunmap.window);
+		if(!c)
+			return;
+		if(c->reparenting){
+			c->reparenting = 0;
+			return;
+		}
+		XReparentWindow(dpy, c->win, root, c->x, c->y);
+		XRemoveFromSaveSet(dpy, c->win);
+		XDestroyWindow(dpy, c->frame);
+		unmanage(c);
+	} else if(ev->type == DestroyNotify){
+		c = winclient(ev->xdestroywindow.window);
+		if(!c)
+			return;
+		XDestroyWindow(dpy, c->frame);
+		unmanage(c);
+	}
+}
+
+static int
+winmenu_rebuild(Client **cls, char **names, int *selp)
+{
+	Client *c;
+	int ncls = 0;
+
+	for(c = clients; c && ncls < MAXCLIENTS; c = c->next){
+		if(c->virt != curdesk)
+			continue;
+		cls[ncls] = c;
+		names[ncls] = c->label ? c->label : "(unnamed)";
+		ncls++;
+	}
+	if(*selp >= ncls)
+		*selp = ncls - 1;
+	if(*selp < 0)
+		*selp = 0;
+	return ncls;
+}
+
+static void
 winmenu(int mx, int my)
 {
 	Window mw;
@@ -1272,20 +1344,13 @@ winmenu(int mx, int my)
 	char *names[MAXCLIENTS];
 	int ncls, itemh, mw_w, mw_h, x, y, i;
 	int sel, done, armed;
+	Client *reshapetarget = NULL;
 
 	if(!xftfont)
 		return;
-	ncls = 0;
-	{
-		Client *c;
-		for(c = clients; c && ncls < MAXCLIENTS; c = c->next){
-			if(c->virt != curdesk)
-				continue;
-			cls[ncls] = c;
-			names[ncls] = c->label ? c->label : "(unnamed)";
-			ncls++;
-		}
-	}
+
+	sel = 0;
+	ncls = winmenu_rebuild(cls, names, &sel);
 	if(ncls == 0)
 		return;
 
@@ -1324,7 +1389,6 @@ winmenu(int mx, int my)
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 
 	armed = 0;
-	sel = 0;
 	done = 0;
 	selbg = getxftcolor(COL_MENU_BG_S);
 	menu_draw(mw, xd, &selbg, names, ncls, sel, itemh, mw_w);
@@ -1332,6 +1396,19 @@ winmenu(int mx, int my)
 	while(!done){
 		XNextEvent(dpy, &ev);
 		switch(ev.type){
+		case UnmapNotify:
+		case DestroyNotify:
+			handleevent_unmapordestroy(&ev);
+			ncls = winmenu_rebuild(cls, names, &sel);
+			if(ncls == 0){
+				done = 1;
+				break;
+			}
+			mw_h = ncls * itemh + MENUH_PAD * 2;
+			XResizeWindow(dpy, mw, U(mw_w), U(mw_h));
+			XftDrawChange(xd, mw);
+			menu_draw(mw, xd, &selbg, names, ncls, sel, itemh, mw_w);
+			break;
 		case Expose:
 			menu_draw(mw, xd, &selbg, names, ncls, sel, itemh, mw_w);
 			break;
@@ -1351,14 +1428,30 @@ winmenu(int mx, int my)
 				armed = 1;
 				break;
 			}
-			if(sel >= 0 && sel < ncls){
-				Client *c = cls[sel];
-				promote(c);
-				focus(c);
-				XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
-					c->dx / 2, c->dy / 2);
+			switch(ev.xbutton.button){
+			case Button1:
+				if(sel >= 0 && sel < ncls){
+					Client *c = cls[sel];
+					promote(c);
+					focus(c);
+					XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
+						c->dx / 2, c->dy / 2);
+				}
+				done = 1;
+				break;
+			case Button2:
+				if(sel >= 0 && sel < ncls)
+					killclient(cls[sel]);
+				break;
+			case Button3:
+				if(sel >= 0 && sel < ncls)
+					reshapetarget = cls[sel];
+				done = 1;
+				break;
+			default:
+				done = 1;
+				break;
 			}
-			done = 1;
 			break;
 		case ButtonPress:
 			if(ev.xbutton.window != mw)
@@ -1371,6 +1464,13 @@ winmenu(int mx, int my)
 		DefaultColormap(dpy, screen), &selbg);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
+	XFlush(dpy);
+
+	if(reshapetarget){
+		promote(reshapetarget);
+		focus(reshapetarget);
+		reshapeclient(reshapetarget);
+	}
 }
 
 static void
@@ -1885,7 +1985,10 @@ keypress(XKeyEvent *e)
 
 	for(i = 0; i < NDESKS; i++){
 		if(ks == deskkeys[i]){
-			switch_to(i);
+			if(e->state & ShiftMask)
+				sendtodesktop(current, i);
+			else
+				switch_to(i);
 			return;
 		}
 	}
@@ -2066,9 +2169,12 @@ grabkeys(void)
 			True, GrabModeAsync, GrabModeAsync);
 		XGrabKey(dpy, right, MOD|mods[i], root,
 			True, GrabModeAsync, GrabModeAsync);
-		for(j = 0; j < NDESKS; j++)
+		for(j = 0; j < NDESKS; j++){
 			XGrabKey(dpy, dk[j], MOD|mods[i], root,
 				True, GrabModeAsync, GrabModeAsync);
+			XGrabKey(dpy, dk[j], MOD|ShiftMask|mods[i], root,
+				True, GrabModeAsync, GrabModeAsync);
+		}
 	}
 }
 
