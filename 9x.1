@@ -3,30 +3,21 @@
 .Os
 .Sh NAME
 .Nm 9x
-.Nd a window manager inspired by Plan 9's rio
+.Nd more scummy and rat infested than rio. Just say NEIN.
 .Sh SYNOPSIS
 .Nm
 .Op Fl v
 .Sh DESCRIPTION
 .Nm
 is a minimalist X11 window manager inspired by Plan 9's rio.
-It provides reparenting window management with 4-pixel borders,
-10 virtual desktops, a built-in status bar, an application launcher
-with incremental search, and an Alt-Tab window switcher.
-.Pp
-Windows are managed with a combination of mouse gestures on borders
-and keyboard shortcuts.
-All keyboard shortcuts use
-.Ic Alt
-(Mod1) as the modifier.
+It provides virtual desktops, bar, launcher & window switcher.
 .Sh OPTIONS
 .Bl -tag -width Ds
 .It Fl v
 Print version and exit.
 .El
 .Sh MOUSE BINDINGS
-.Ss Root Window and Status Bar
-Clicking on the root window (desktop background) or the status bar:
+.Ss Desktop and Bar
 .Bl -tag -width "Button 4/5"
 .It Button 1
 Open the window menu (list of windows on the current desktop).
@@ -43,8 +34,6 @@ constant (default:
 Cycle to the previous/next virtual desktop.
 .El
 .Ss Window Menu
-The window menu lists all windows on the current desktop.
-Different mouse buttons perform different actions on the selected entry:
 .Bl -tag -width "Button 3"
 .It Button 1
 Focus and raise the selected window, closing the menu.
@@ -58,10 +47,6 @@ The window is focused and raised first, then the menu closes and
 the sweep begins.
 .El
 .Ss Window Borders
-Clicking on a window's border initiates a resize operation.
-The border is divided into directional zones
-(N, S, E, W and diagonal corners)
-with corresponding resize cursors.
 .Bl -tag -width "Button 3"
 .It Button 1
 Resize the window by dragging the border.
@@ -198,29 +183,7 @@ opposite corner to define the rectangle, and release.
 A red outline is drawn during the drag.
 If the resulting rectangle is too small, the operation is cancelled.
 .Sh CUSTOMIZATION
-.Nm
-is customized by editing constants in the source code and recompiling.
-Notable tunables include:
-.Bl -tag -width "COL_*"
-.It Dv COL_*
-Color definitions for borders, menus, bar, and root background.
-.It Dv BORDER
-Border width in pixels (default: 4).
-.It Dv CORNER
-Corner zone size for diagonal resizing (default: 25 pixels).
-.It Dv MOD
-Modifier key (default: Mod1Mask / Alt).
-.It Dv XFTFONT
-Font for menus and the window switcher.
-.It Dv BARFONT
-Font for the status bar.
-.It Dv TERM
-Terminal emulator command (default: xterm).
-.It Dv NDESKS
-Number of virtual desktops (default: 10).
-.It Dv TIMEFMT
-.Xr strftime 3
-format string for the bar clock.
+Read the goddamn source you filthy heathen.
 .El
 .Sh SEE ALSO
 .Xr X 7 ,
@@ -233,3 +196,7 @@ does not support EWMH/ICCCM beyond the minimum required for basic
 window management (WM_PROTOCOLS, WM_DELETE_WINDOW, WM_TAKE_FOCUS,
 WM_STATE).
 Some applications that depend on extended hints may not behave correctly.
+.Pp
+There may be some cursed cursors &
+.Ic Rabbits of Caerbannog
+lurking in dark corners...
