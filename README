@@ -1,24 +1,4 @@
-NAME
-	9x more scummy and rat infested than rio. Just say NEIN.
-
-SYNOPSIS
-	9x [-v]
-
-DESCRIPTION
-	9x is a sucky X11 window manager & scummy rio rip-off.
-	It provides far more than you bargained for.
-	Do 9 things and do them poorly.
-
-OPTIONS
-	-v	Erase computer. Weep.
-
-CUSTOMISATION
-	Read the goddamn src(1) you filthy heathen.
-
-BUGS
-	Programs that depend on EWMH/ICCCM may shit the bed.
-	Cursed cursors & Caerbannog bunnies lurking in dark corners...
-
+      __
      (  \
  __   \  '\
 (  "-_ \ .-'----._
@@ -33,3 +13,79 @@ BUGS
        (             /
       /'\         . \
       "--^--.__,\_)-'
+NAME
+     9x more scummy and rat infested than rio. Just say NEIN.
+
+SYNOPSIS
+     9x [-v]
+
+DESCRIPTION
+     9x is a sucky X11 window manager and scummy rio rip-off.  It provides far
+     more than you bargained for.  Do 9 things and do them poorly.
+
+OPTIONS
+     -v  Erase computer. Weep.
+
+MOUSE
+   Desktop & Bar
+     Button 1  Window menu.
+
+     Button 2  Desktop menu.
+
+     Button 3  Sweep new terminal.
+
+     Scroll    Cycle desktops.
+
+   Window Menu
+     Button 1  Focus.
+
+     Button 2  Delete.
+
+     Button 3  Sweep.
+
+   Window Borders
+     Button 1  Resize.
+
+     Button 2  Delete.
+
+     Button 3  Move.
+
+     B1 + B3   Maximize.
+
+KEYBOARD
+     Alt+Space         Launch.
+
+     Alt+Tab           Switch windows.
+
+     Alt+Shift+Tab     Reverse switch windows.
+
+     Alt+F4            Delete.
+
+     Alt+F10           Maximize.
+
+     Alt+F11           Fullscreen.
+
+     Alt+[1..9]        Desktop 1-9.
+
+     Alt+Shift+[1..9]  Window to desktop 1-9.
+
+LAUNCHER
+     Return     Launch.
+
+     Tab        Complete.
+
+     Backspace  Delete.
+
+     Down       Next.
+
+     Up         Previous.
+
+     Escape     Cancel.
+
+CUSTOMIZATION
+     Read the goddamn src(1) you filthy heathen.
+
+BUGS
+     Programs that depend on EWMH/ICCCM may shit the bed.
+
+     Cursed cursors & Caerbannog bunnies lurking in dark corners...
