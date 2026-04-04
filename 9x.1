@@ -16,172 +16,103 @@ It provides virtual desktops, bar, launcher & window switcher.
 .It Fl v
 Print version and exit.
 .El
-.Sh MOUSE BINDINGS
-.Ss Desktop and Bar
-.Bl -tag -width "Button 4/5"
+.Sh MOUSE
+.Ss Desktop & Bar
+.Bl -tag -width "Button 1"
 .It Button 1
-Open the window menu (list of windows on the current desktop).
+Window menu.
 .It Button 2
-Open the desktop menu (list of virtual desktops).
+Desktop menu.
 .It Button 3
-Sweep a new terminal: hold and drag to define the window geometry,
-then release.
-The terminal command is defined by the
-.Dv TERM
-constant (default:
-.Ic xterm ) .
-.It Button 4/5
-Cycle to the previous/next virtual desktop.
+Sweep new terminal.
+.It Scroll
+Cycle desktops.
 .El
 .Ss Window Menu
 .Bl -tag -width "Button 3"
 .It Button 1
-Focus and raise the selected window, closing the menu.
+Focus.
 .It Button 2
-Kill the selected window.
-The menu stays open and updates to reflect the remaining windows,
-allowing multiple windows to be killed in succession.
+Delete.
 .It Button 3
-Re-sweep (reshape) the selected window using the sweep gesture.
-The window is focused and raised first, then the menu closes and
-the sweep begins.
+Re-sweep.
 .El
 .Ss Window Borders
-.Bl -tag -width "Button 3"
+.Bl -tag -width "Button 1"
 .It Button 1
-Resize the window by dragging the border.
-A red outline shows the new geometry.
-Release to apply.
-.Pp
-During a resize, additional chords are available:
-.Bl -tag -width "Button 3"
-.It Button 2
-Cancel the resize and re-sweep (reshape) the window freely.
-.It Button 3
-Cancel the resize and delete (close) the window.
-.El
+Resize.
 .It Button 2
 Toggle maximize.
-A maximized window fills the screen minus borders.
 .It Button 3
-Move the window by dragging.
-A red outline shows the new position.
+Move.
+.It B1 + B2
+Re-sweep.
+.It B1 + B3
+Delete.
 .El
-.Ss Inside Client Windows
-.Bl -tag -width "Alt+Button 3"
+.Ss Inside Windows
+.Bl -tag -width "Button 1"
 .It Button 1
-Focus and raise the window (click-to-focus).
-.It Alt+Button 1
-Resize the window from the bottom-right corner.
-.It Alt+Button 3
-Move the window.
+Focus.
+.It Alt+B1
+Resize.
+.It Alt+B3
+Move.
 .El
-.Sh KEYBOARD BINDINGS
-All keyboard bindings use
-.Ic Alt
-(Mod1) as the modifier unless otherwise noted.
-.Bl -tag -width "Alt+Shift+Space"
+.Sh KEYBOARD
+.Bl -tag -width "Alt+Shift+[1..0]"
 .It Alt+Return
-Spawn a new terminal (centred, default size).
+New terminal.
 .It Alt+Space
-Open the application launcher.
-The selected program is spawned at the default position and size.
+Launch.
 .It Alt+Shift+Space
-Open the application launcher in sweep mode.
-After selecting a program, drag to define its window geometry.
+Launch in sweep mode.
 .It Alt+Tab
-Open the window switcher.
-Press Tab repeatedly to cycle through windows on the current desktop.
-Release Alt to focus the selected window.
-Shift+Tab cycles backwards.
-Escape cancels.
+Switch windows.
 .It Alt+q
-Close (delete) the focused window.
-If the window supports WM_DELETE_WINDOW, a delete message is sent;
-otherwise the client is killed.
+Delete.
 .It Alt+m
-Toggle maximize on the focused window.
+Toggle aximize.
 .It Alt+F11
-Toggle fullscreen on the focused window.
-A fullscreen window covers the entire screen including the status bar
-and has no borders.
-.It Alt+1 No ... Alt+0
-Switch to virtual desktop 1\(en10.
-.It Alt+Shift+1 No ... Alt+Shift+0
-Send the focused window to virtual desktop 1\(en10.
-The window is unmapped from the current desktop and becomes the
-focused window on the target desktop.
+Toggle fullscreen.
+.It Alt+[1..0]
+Desktop 1\(en10.
+.It Alt+Shift+[1..0]
+Window to desktop 1\(en10.
 .It Alt+Left
-Switch to the previous virtual desktop.
+Previous desktop.
 .It Alt+Right
-Switch to the next virtual desktop.
+Next desktop.
 .El
-.Sh APPLICATION LAUNCHER
-The application launcher is a full-screen-width menu that appears at the
-top of the screen (when invoked via keyboard) or at the cursor position
-(when invoked from a menu).
-It indexes all executables in
-.Ev PATH
-and provides incremental substring filtering as you type.
+.Sh LAUNCHER
+Search all executables in
+.Ic PATH
 .Pp
-.Bl -tag -width "Ctrl+u"
-.It Type
-Filter the list by substring match.
+.Bl -tag -width "Backspace"
 .It Return
-Launch the selected (highlighted) program, or the typed text if no
-match is highlighted.
+Launch.
 .It Tab
-Complete the input with the currently selected item.
+Complete.
 .It Backspace
-Delete the last character.
+Delete.
 .It Ctrl+u
-Clear the input.
-.It Ctrl+n , Down
-Select the next item.
-.It Ctrl+p , Up
-Select the previous item.
+Clear.
+.It Down
+Next.
+.It Up
+Previous.
 .It Escape
 Cancel.
 .El
-.Sh STATUS BAR
-A small status bar is displayed in the bottom-right corner of the screen.
-It shows:
+.Sh BAR
 .Bl -bullet
 .It
-The current virtual desktop number in brackets (e.g.\&
-.Ic [1] ) .
+Desktop number.
 .It
-Battery percentage and AC status on supported platforms
-(OpenBSD via
-.Xr apm 4 ,
-FreeBSD via
-.Ic hw.acpi ) .
-An exclamation mark prefix indicates the system is on battery power.
+Battery percentage, ! indicates discharging.
 .It
-The current time formatted according to the
-.Dv TIMEFMT
-constant (default:
-.Ic %H:%M %a %d/%m ) .
+Date & time.
 .El
-.Pp
-The bar refreshes every 60 seconds and always stays above normal windows
-unless a window is fullscreened.
-.Sh VIRTUAL DESKTOPS
-.Nm
-provides 10 virtual desktops numbered 1 through 10.
-Each desktop maintains its own focus state.
-Windows can be moved between desktops with
-.Ic Alt+Shift+N
-or viewed by switching with
-.Ic Alt+N .
-Scrolling (Button 4/5) on the root window or bar also cycles desktops.
-.Sh SWEEP GESTURE
-The sweep gesture, inherited from rio, allows precise placement and sizing
-of new windows.
-Press and hold a mouse button to set the origin corner, drag to the
-opposite corner to define the rectangle, and release.
-A red outline is drawn during the drag.
-If the resulting rectangle is too small, the operation is cancelled.
 .Sh CUSTOMIZATION
 Read the goddamn source you filthy heathen.
 .El
@@ -192,11 +123,9 @@ Read the goddamn source you filthy heathen.
 .An Toby Slight
 .Sh BUGS
 .Nm
-does not support EWMH/ICCCM beyond the minimum required for basic
-window management (WM_PROTOCOLS, WM_DELETE_WINDOW, WM_TAKE_FOCUS,
-WM_STATE).
-Some applications that depend on extended hints may not behave correctly.
+does not support EWMH/ICCCM.
+Programs that depend on extended hints may shit the bed.
 .Pp
-There may be some cursed cursors &
+Cursed cursors &
 .Ic Rabbits of Caerbannog
 lurking in dark corners...
