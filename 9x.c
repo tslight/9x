@@ -854,10 +854,10 @@ make_outline_bar(void)
 }
 
 static int
-sweep(int *rx, int *ry, int *rdx, int *rdy)
+sweep(int sx, int sy, int *rx, int *ry, int *rdx, int *rdy)
 {
 	XEvent ev;
-	int sx, sy, status;
+	int status;
 	int bx, by, bdx, bdy, drawn, done;
 
 	status = XGrabPointer(dpy, root, False,
@@ -867,26 +867,27 @@ sweep(int *rx, int *ry, int *rdx, int *rdy)
 		return 0;
 
 	drawn = 0;
-	done = 0;
 	bx = by = bdx = bdy = 0;
-	sx = sy = 0;
 
 	XSync(dpy, False);
 	while(XCheckMaskEvent(dpy, ButtonReleaseMask | ButtonPressMask, &ev))
 		;
 
-	while(!done){
-		XMaskEvent(dpy, ButtonPressMask | ButtonReleaseMask
-			| PointerMotionMask, &ev);
-		switch(ev.type){
-		case ButtonPress:
-			sx = ev.xbutton.x_root;
-			sy = ev.xbutton.y_root;
-			done = 1;
-			break;
-		case MotionNotify:
-		case ButtonRelease:
-			break;
+	if(sx < 0 || sy < 0){
+		done = 0;
+		while(!done){
+			XMaskEvent(dpy, ButtonPressMask | ButtonReleaseMask
+				| PointerMotionMask, &ev);
+			switch(ev.type){
+			case ButtonPress:
+				sx = ev.xbutton.x_root;
+				sy = ev.xbutton.y_root;
+				done = 1;
+				break;
+			case MotionNotify:
+			case ButtonRelease:
+				break;
+			}
 		}
 	}
 
@@ -942,7 +943,7 @@ sweepspawn(const char *cmd)
 {
 	int bx, by, bdx, bdy;
 
-	if(!sweep(&bx, &by, &bdx, &bdy)){
+	if(!sweep(-1, -1, &bx, &by, &bdx, &bdy)){
 		spawn(cmd);
 		return;
 	}
@@ -961,7 +962,7 @@ reshapeclient(Client *c)
 
 	if(!c)
 		return;
-	if(!sweep(&bx, &by, &bdx, &bdy))
+	if(!sweep(-1, -1, &bx, &by, &bdx, &bdy))
 		return;
 	c->x = bx + BORDER;
 	c->y = by + BORDER;
@@ -1121,8 +1122,16 @@ moveclient(Client *c, XButtonEvent *start)
 static void
 sweepnew(XButtonEvent *start)
 {
-	(void)start;
-	sweepspawn(TERM);
+	int bx, by, bdx, bdy;
+
+	if(!sweep(start->x_root, start->y_root, &bx, &by, &bdx, &bdy))
+		return;
+	sweep_x = bx + BORDER;
+	sweep_y = by + BORDER;
+	sweep_dx = bdx - 2 * BORDER;
+	sweep_dy = bdy - 2 * BORDER;
+	sweep_pending = 1;
+	spawn(TERM);
 }
 
 static void
