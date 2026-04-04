@@ -55,9 +55,9 @@ MOUSE
 KEYBOARD
      Alt+Space         Launch.
 
-     Alt+Tab           Switch windows.
+     Alt+Tab           Cycle windows.
 
-     Alt+Shift+Tab     Reverse switch windows.
+     Alt+Shift+Tab     Reverse cycle windows.
 
      Alt+F4            Delete.
 
