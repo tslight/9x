@@ -991,7 +991,6 @@ sweepspawn(const char *cmd)
 	int bx, by, bdx, bdy;
 
 	if(!sweep(-1, -1, &bx, &by, &bdx, &bdy)){
-		spawn(cmd);
 		return;
 	}
 	setsweep(bx, by, bdx, bdy);
