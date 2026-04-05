@@ -1,7 +1,7 @@
 /*
- * 9x more scummy and rat infested than rio. Just say NEIN.
+ * 9x more scum & rats than rio. Just say NEIN.
  *
- * Copyright (c) 2026 Toby Slight <oxff.art>
+ * Copyright (c) 2026 Toby Slight <0xff.art>
  */
 
 #include <err.h>
