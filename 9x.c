@@ -1301,6 +1301,11 @@ winmenu_rebuild(Client **cls, char **names, int *selp)
 		cls[ncls] = c;
 		ncls++;
 	}
+	names[ncls] = strdup("Exit");
+	if(names[ncls]){
+		cls[ncls] = NULL;
+		ncls++;
+	}
 	if(*selp >= ncls)
 		*selp = ncls - 1;
 	if(*selp < 0)
@@ -1413,12 +1418,16 @@ winmenu(int mx, int my)
 			switch(ev.xbutton.button){
 			case Button1:
 				if(sel >= 0 && sel < ncls){
-					Client *c = cls[sel];
-					promote(c);
-					focus(c);
-					XWarpPointer(dpy, None, c->win,
-						0, 0, 0, 0,
-						(int)c->dx/2, (int)c->dy/2);
+					if(cls[sel] == NULL) {
+						running = 0;
+					} else {
+						Client *c = cls[sel];
+						promote(c);
+						focus(c);
+						XWarpPointer(dpy, None, c->win,
+							0, 0, 0, 0,
+							(int)c->dx/2, (int)c->dy/2);
+					}
 				}
 				done = 1;
 				break;
