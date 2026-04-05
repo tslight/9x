@@ -743,6 +743,8 @@ manage(Window w)
 	setwmstate(c, NormalState);
 	focus(c);
 	sendconfig(c);
+	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
+		(int)c->dx / 2, (int)c->dy / 2);
 	return c;
 }
 
@@ -1295,8 +1297,12 @@ winmenu_rebuild(Client **cls, char **names, int *selp)
 {
 	Client *c;
 	int ncls = 0;
-
-	for(c = clients; c && ncls < MAXCLIENTS; c = c->next){
+	names[0] = strdup("Run");
+	if(!names[0])
+		return 0;
+	cls[0] = NULL;
+	ncls = 1;
+	for(c = clients; c && ncls < MAXCLIENTS - 1; c = c->next){
 		if(c->virt != curdesk)
 			continue;
 		names[ncls] = strdup(c->label ? c->label : "(unnamed)");
@@ -1317,6 +1323,7 @@ winmenu_rebuild(Client **cls, char **names, int *selp)
 	return ncls;
 }
 
+static void launch(void);
 static void
 winmenu(int mx, int my)
 {
@@ -1328,6 +1335,7 @@ winmenu(int mx, int my)
 	char *names[MAXCLIENTS];
 	int ncls, itemh, mw_w, mw_h, x, y, i;
 	int sel, done, armed;
+	int dolaunch = 0;
 	Client *reshapetarget = NULL;
 
 	if(!xftfont)
@@ -1377,8 +1385,8 @@ winmenu(int mx, int my)
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	/* grab keyboard to prevent alt-tab on open menu conflict */
-	if (XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
-		CurrentTime) != GrabSuccess) {
+	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess){
 		XUngrabPointer(dpy, CurrentTime);
 		XftDrawDestroy(xd);
 		XDestroyWindow(dpy, mw);
@@ -1389,6 +1397,11 @@ winmenu(int mx, int my)
 	armed = 0;
 	done = 0;
 	menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
+
+	/* warp pointer to first menu item */
+	int wx = x + mw_w/2;
+	int wy = y + itemh/2;
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
 
 	while(!done){
 		XNextEvent(dpy, &ev);
@@ -1433,19 +1446,26 @@ winmenu(int mx, int my)
 			}
 			break;
 		case ButtonRelease:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
 			if(!armed){ armed = 1; break; }
 			switch(ev.xbutton.button){
 			case Button1:
 				if(sel >= 0 && sel < ncls){
-					if(cls[sel] == NULL) {
-						running = 0;
+					if(cls[sel] == NULL){
+					    if(sel == 0)
+					        dolaunch = 1;
+					    else
+					        running = 0;
 					} else {
-						Client *c = cls[sel];
-						promote(c);
-						focus(c);
-						XWarpPointer(dpy, None, c->win,
-							0, 0, 0, 0,
-							(int)c->dx/2, (int)c->dy/2);
+					    Client *c = cls[sel];
+					    promote(c);
+					    focus(c);
+					    XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
+					        (int)c->dx/2, (int)c->dy/2);
 					}
 				}
 				done = 1;
@@ -1465,8 +1485,10 @@ winmenu(int mx, int my)
 			}
 			break;
 		case ButtonPress:
-			if(ev.xbutton.window != mw)
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
 				done = 1;
+			}
 			break;
 		}
 	}
@@ -1476,6 +1498,11 @@ winmenu(int mx, int my)
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
 	XFlush(dpy);
+
+	if(dolaunch){
+	    launch();
+	    return;
+	}
 
 	if(reshapetarget){
 		promote(reshapetarget);
@@ -1541,8 +1568,8 @@ deskmenu(int mx, int my)
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
 	/* grab keyboard to prevent alt-tab on open menu conflict */
-	if (XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
-		CurrentTime) != GrabSuccess) {
+	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess){
 		XUngrabPointer(dpy, CurrentTime);
 		XftDrawDestroy(xd);
 		XDestroyWindow(dpy, mw);
@@ -1553,6 +1580,11 @@ deskmenu(int mx, int my)
 	sel = curdesk;
 	done = 0;
 	menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
+
+	/* warp pointer to first menu item */
+	int wx = x + mw_w/2;
+	int wy = y + itemh/2;
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
 
 	while(!done){
 		XNextEvent(dpy, &ev);
@@ -1574,14 +1606,21 @@ deskmenu(int mx, int my)
 			}
 			break;
 		case ButtonRelease:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
 			if(!armed){ armed = 1; break; }
 			if(sel >= 0 && sel < NDESKS)
 				switch_to(sel);
 			done = 1;
 			break;
 		case ButtonPress:
-			if(ev.xbutton.window != mw)
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
 				done = 1;
+			}
 			break;
 		}
 	}
@@ -1731,6 +1770,7 @@ launch(void)
 	int mw_w, mw_h, itemh, nfilt, fsel;
 	int x, y, maxlines;
 	size_t i;
+	int sweep = 0;
 
 	if(!xftfont)
 		return;
@@ -1767,7 +1807,8 @@ launch(void)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = KeyPressMask | ButtonPressMask;
+	sa.event_mask = KeyPressMask | ButtonPressMask |
+		ButtonReleaseMask | PointerMotionMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
 		(unsigned int)mw_w, (unsigned int)mw_h, 2,
@@ -1785,8 +1826,16 @@ launch(void)
 		free(filtered);
 		return;
 	}
-	XGrabPointer(dpy, mw, True, ButtonPressMask, GrabModeAsync,
-		GrabModeAsync, None, None, CurrentTime);
+	XGrabPointer(dpy, mw, False,
+		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+
+	/* warp pointer to first menu item, if available */
+	if(nfilt > 0){
+		int wx = x + mw_w/2;
+		int wy = y + itemh + itemh/2;
+		XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
+	}
 
 	exec_draw(mw, xd, filtered, nfilt, fsel, input, itemh, mw_w);
 
@@ -1796,8 +1845,7 @@ launch(void)
 		if(ev.type == KeyPress){
 			char buf[32];
 			KeySym ks;
-			int count, refilter;
-			refilter = 0;
+			int count, refilter = 0;
 			count = XLookupString(&ev.xkey, buf, sizeof buf,
 				&ks, NULL);
 			if(ks == XK_Escape){
@@ -1811,6 +1859,8 @@ launch(void)
 					strncpy(chosen, input, INPUTMAX-1);
 					chosen[INPUTMAX-1] = '\0';
 				}
+				if(ev.xkey.state & Mod1Mask)
+					sweep = 1;
 				done = 1;
 			} else if(ks == XK_Tab){
 				if(nfilt > 0 && fsel >= 0 && fsel < nfilt){
@@ -1854,7 +1904,37 @@ launch(void)
 					input, itemh, mw_w);
 			}
 		} else if(ev.type == ButtonPress){
-			done = 1;
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
+		} else if(ev.type == ButtonRelease){
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
+			if(nfilt > 0){
+				int idx = ev.xbutton.y / itemh - 1;
+				if(idx >= 0 && idx < nfilt){
+					fsel = idx;
+					strncpy(chosen, filtered[fsel], INPUTMAX-1);
+					chosen[INPUTMAX-1] = '\0';
+					if(ev.xbutton.button == Button3)
+						sweep = 1;
+					done = 1;
+				}
+			}
+		} else if(ev.type == MotionNotify){
+			if(nfilt > 0){
+				int idx = ev.xmotion.y / itemh - 1;
+				if(idx != fsel && idx >= 0 && idx < nfilt){
+					fsel = idx;
+					exec_draw(mw, xd, filtered, nfilt, fsel,
+						input, itemh, mw_w);
+				}
+			}
 		}
 	}
 
@@ -1865,8 +1945,12 @@ launch(void)
 	XFlush(dpy);
 	free(filtered);
 
-	if(chosen[0])
-		sweepspawn(chosen);
+	if(chosen[0]){
+		if(sweep)
+			sweepspawn(chosen);
+		else
+			spawn(chosen);
+	}
 }
 
 static void
