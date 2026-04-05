@@ -1,7 +1,7 @@
 /*
  * 9x more scummy and rat infested than rio. Just say NEIN.
  *
- * Copyright (c) 2026 Toby Slight.  MIT License.
+ * Copyright (c) 2026 Toby Slight <oxff.art>
  */
 
 #include <err.h>
