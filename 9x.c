@@ -1361,7 +1361,7 @@ winmenu(int mx, int my)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | ButtonPressMask
+	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
 		| PointerMotionMask | ButtonReleaseMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
@@ -1376,6 +1376,15 @@ winmenu(int mx, int my)
 	XGrabPointer(dpy, mw, True,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	/* grab keyboard to prevent alt-tab on open menu conflict */
+	if (XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess) {
+		XUngrabPointer(dpy, CurrentTime);
+		XftDrawDestroy(xd);
+		XDestroyWindow(dpy, mw);
+		freenames(names, ncls);
+		return;
+	}
 
 	armed = 0;
 	done = 0;
@@ -1384,6 +1393,9 @@ winmenu(int mx, int my)
 	while(!done){
 		XNextEvent(dpy, &ev);
 		switch(ev.type){
+		case KeyPress:
+			done = 1;
+			break;
 		case UnmapNotify:
 			unmapnotify(&ev.xunmap);
 			freenames(names, ncls);
@@ -1460,6 +1472,7 @@ winmenu(int mx, int my)
 	}
 	freenames(names, ncls);
 	XUngrabPointer(dpy, CurrentTime);
+	XUngrabKeyboard(dpy, CurrentTime);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
 	XFlush(dpy);
@@ -1512,7 +1525,7 @@ deskmenu(int mx, int my)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | ButtonPressMask
+	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
 		| PointerMotionMask | ButtonReleaseMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
@@ -1527,6 +1540,14 @@ deskmenu(int mx, int my)
 	XGrabPointer(dpy, mw, True,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
 		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	/* grab keyboard to prevent alt-tab on open menu conflict */
+	if (XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess) {
+		XUngrabPointer(dpy, CurrentTime);
+		XftDrawDestroy(xd);
+		XDestroyWindow(dpy, mw);
+		return;
+	}
 
 	armed = 0;
 	sel = curdesk;
@@ -1536,6 +1557,9 @@ deskmenu(int mx, int my)
 	while(!done){
 		XNextEvent(dpy, &ev);
 		switch(ev.type){
+		case KeyPress:
+			done = 1;
+			break;
 		case Expose:
 			menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
 			break;
@@ -1562,6 +1586,7 @@ deskmenu(int mx, int my)
 		}
 	}
 	XUngrabPointer(dpy, CurrentTime);
+	XUngrabKeyboard(dpy, CurrentTime);
 	XftDrawDestroy(xd);
 	XDestroyWindow(dpy, mw);
 }
