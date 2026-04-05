@@ -1232,9 +1232,13 @@ tab_show(void)
 	if(tab_n == 0)
 		return;
 	tab_sel = (tab_n > 1) ? 1 : 0;
+	if(XGrabKeyboard(dpy, root, False, GrabModeAsync,
+		GrabModeAsync, CurrentTime) != GrabSuccess){
+		freenames(tab_names, tab_n);
+		tab_n = 0;
+		return;
+	}
 	tab_active = 1;
-	XGrabKeyboard(dpy, root, False,
-		GrabModeAsync, GrabModeAsync, CurrentTime);
 	tab_draw();
 }
 
@@ -1328,6 +1332,9 @@ winmenu(int mx, int my)
 
 	if(!xftfont)
 		return;
+
+	if(tab_active)
+		tab_hide(0);
 
 	sel = 0;
 	ncls = winmenu_rebuild(cls, names, &sel);
@@ -1478,6 +1485,9 @@ deskmenu(int mx, int my)
 
 	if(!xftfont)
 		return;
+
+	if(tab_active)
+		tab_hide(0);
 
 	for(i = 0; i < NDESKS; i++){
 		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
