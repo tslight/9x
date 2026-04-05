@@ -343,12 +343,15 @@ bar_redraw(void)
 	time_t now;
 	struct tm *t;
 	char tbuf[64], bbuf[32], dbuf[8];
-	int x, y;
+	int x, y, dlen, blen, tlen;
 	unsigned int w, h;
 
 	now = time(NULL);
 	t = localtime(&now);
-	strftime(tbuf, sizeof tbuf, TIMEFMT, t);
+	if(t)
+		strftime(tbuf, sizeof tbuf, TIMEFMT, t);
+	else
+		strcpy(tbuf, "??:??");
 	snprintf(dbuf, sizeof dbuf, "[%d] ", curdesk + 1);
 
 	if(bar_batt >= 0)
@@ -357,9 +360,13 @@ bar_redraw(void)
 	else
 		bbuf[0] = '\0';
 
-	w = (unsigned int)(xft_textwidth(dbuf, (int)strlen(dbuf))
-		+ xft_textwidth(bbuf, (int)strlen(bbuf))
-		+ xft_textwidth(tbuf, (int)strlen(tbuf))) + BAR_PAD * 2;
+	dlen = (int)strlen(dbuf);
+	blen = (int)strlen(bbuf);
+	tlen = (int)strlen(tbuf);
+
+	w = (unsigned int)(xft_textwidth(dbuf, dlen)
+		+ xft_textwidth(bbuf, blen) + xft_textwidth(tbuf, tlen))
+		+ BAR_PAD * 2;
 	h = (unsigned int)(xftfont->ascent + xftfont->descent) + BAR_PAD * 2;
 	if(w != barw || h != barh){
 		barw = w;
@@ -380,17 +387,17 @@ bar_redraw(void)
 	y = BAR_PAD + xftfont->ascent;
 
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
-		(const FcChar8 *)dbuf, (int)strlen(dbuf));
-	x += xft_textwidth(dbuf, (int)strlen(dbuf));
+		(const FcChar8 *)dbuf, dlen);
+	x += xft_textwidth(dbuf, dlen);
 
 	if(bbuf[0]){
 		XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
-			(const FcChar8 *)bbuf, (int)strlen(bbuf));
-		x += xft_textwidth(bbuf, (int)strlen(bbuf));
+			(const FcChar8 *)bbuf, blen);
+		x += xft_textwidth(bbuf, blen);
 	}
 
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, y,
-		(const FcChar8 *)tbuf, (int)strlen(tbuf));
+		(const FcChar8 *)tbuf, tlen);
 
 	XCopyArea(dpy, barpix, barwin, bargc, 0, 0, barw, barh, 0, 0);
 }
@@ -532,22 +539,11 @@ setborder(Client *c, int focused)
 static void
 grabbuttons(Client *c, int focused)
 {
-	unsigned int mods[] = { 0, LockMask, Mod2Mask, LockMask|Mod2Mask };
-	unsigned int i;
-
 	XUngrabButton(dpy, AnyButton, AnyModifier, c->win);
 	if(!focused)
 		XGrabButton(dpy, Button1, AnyModifier, c->win, False,
 			ButtonPressMask, GrabModeSync, GrabModeSync,
 			None, None);
-	for(i = 0; i < LENGTH(mods); i++){
-		XGrabButton(dpy, Button1, MOD|mods[i], c->win, False,
-			ButtonPressMask, GrabModeAsync, GrabModeAsync,
-			None, None);
-		XGrabButton(dpy, Button3, MOD|mods[i], c->win, False,
-			ButtonPressMask, GrabModeAsync, GrabModeAsync,
-			None, None);
-	}
 }
 
 static void
@@ -709,14 +705,14 @@ manage(Window w)
 			c->y = (int)(sh - c->dy) / 2;
 		}
 
-		if(c->x < BORDER)
-			c->x = BORDER;
-		if(c->y < BORDER)
-			c->y = BORDER;
 		if(c->x + (int)c->dx + BORDER > (int)sw)
 			c->x = (int)sw - (int)c->dx - BORDER;
 		if(c->y + (int)c->dy + BORDER > (int)sh)
 			c->y = (int)sh - (int)c->dy - BORDER;
+		if(c->x < BORDER)
+			c->x = BORDER;
+		if(c->y < BORDER)
+			c->y = BORDER;
 	}
 
 	getname(c);
@@ -725,8 +721,7 @@ manage(Window w)
 	sa.override_redirect = True;
 	sa.background_pixel = col_inactive;
 	sa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask
-		| ButtonPressMask | ButtonReleaseMask
-		| PointerMotionMask | LeaveWindowMask;
+		| ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
 
 	c->frame = XCreateWindow(dpy, root,
 		c->x - BORDER, c->y - BORDER,
@@ -776,7 +771,8 @@ unmanage(Client *c)
 static void
 closeclient(Client *c)
 {
-	if(!c) return;
+	if(!c)
+		return;
 	if(c->proto & Pdelete)
 		sendcmessage(c->win, wm_protocols, wm_delete);
 	else
@@ -1471,7 +1467,8 @@ deskmenu(int mx, int my)
 	char dnames[NDESKS][4];
 	char *dp[NDESKS];
 
-	if(!xftfont) return;
+	if(!xftfont)
+		return;
 
 	for(i = 0; i < NDESKS; i++){
 		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
@@ -1686,15 +1683,17 @@ launch(void)
 	char input[INPUTMAX];
 	char chosen[INPUTMAX];
 	char **filtered;
-	int len, done, refilter;
+	int len, done;
 	int mw_w, mw_h, itemh, nfilt, fsel;
 	int x, y, maxlines;
 	size_t i;
 
-	if(!xftfont) return;
+	if(!xftfont)
+		return;
 	build_execs();
 	filtered = malloc(nexecs * sizeof(char *));
-	if(!filtered) return;
+	if(!filtered)
+		return;
 
 	itemh = xftfont->ascent + xftfont->descent;
 	input[0] = '\0';
@@ -1724,7 +1723,7 @@ launch(void)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | KeyPressMask | ButtonPressMask;
+	sa.event_mask = KeyPressMask | ButtonPressMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
 		(unsigned int)mw_w, (unsigned int)mw_h, 2,
@@ -1753,8 +1752,8 @@ launch(void)
 		if(ev.type == KeyPress){
 			char buf[32];
 			KeySym ks;
-			int count;
-
+			int count, refilter;
+			refilter = 0;
 			count = XLookupString(&ev.xkey, buf, sizeof buf,
 				&ks, NULL);
 			if(ks == XK_Escape){
@@ -1822,7 +1821,8 @@ launch(void)
 	XFlush(dpy);
 	free(filtered);
 
-	if(chosen[0]) sweepspawn(chosen);
+	if(chosen[0])
+		sweepspawn(chosen);
 }
 
 static void
