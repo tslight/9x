@@ -54,7 +54,7 @@ MOUSE
      B1 + B3   Maximize.
 
 KEYBOARD
-     Alt+Space         Launch.
+     Alt+Space         Broom cupboard.
 
      Alt+Tab           Cycle windows.
 
@@ -87,6 +87,8 @@ CUSTOMIZATION
      Read the goddamn src(1) you filthy heathen.
 
 BUGS
+	 Your windows are dirty. You must sweep them first.
+
      Programs that depend on EWMH/ICCCM may shit the bed.
 
      Cursed cursors & Caerbannog bunnies lurking in dark corners...
