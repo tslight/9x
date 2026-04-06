@@ -1974,7 +1974,6 @@ buttonpress(XButtonEvent *e)
 			closeclient(c);
 		else if(e->button == 3)
 			moveclient(c, e);
-		return;
 	}
 	promote(c);
 	focus(c);
