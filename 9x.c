@@ -1274,37 +1274,6 @@ static void unmapnotify(XUnmapEvent *);
 static void destroynotify(XDestroyWindowEvent *);
 
 static int
-winmenu_rebuild(Client **cls, char **names, int *selp)
-{
-	Client *c;
-	int ncls = 0;
-	names[0] = strdup("Run");
-	if(!names[0])
-		return 0;
-	cls[0] = NULL;
-	ncls = 1;
-	for(c = clients; c && ncls < MAXCLIENTS - 1; c = c->next){
-		if(c->virt != curdesk)
-			continue;
-		names[ncls] = strdup(c->label ? c->label : "(unnamed)");
-		if(!names[ncls])
-			continue;
-		cls[ncls] = c;
-		ncls++;
-	}
-	names[ncls] = strdup("Exit");
-	if(names[ncls]){
-		cls[ncls] = NULL;
-		ncls++;
-	}
-	if(*selp >= ncls)
-		*selp = ncls - 1;
-	if(*selp < 0)
-		*selp = 0;
-	return ncls;
-}
-
-static int
 execcmp(const void *a, const void *b)
 {
 	return strcmp(*(const char **)a, *(const char **)b);
@@ -1622,6 +1591,37 @@ launch(void)
 		else
 			spawn(chosen);
 	}
+}
+
+static int
+winmenu_rebuild(Client **cls, char **names, int *selp)
+{
+	Client *c;
+	int ncls = 0;
+	names[0] = strdup("Run");
+	if(!names[0])
+		return 0;
+	cls[0] = NULL;
+	ncls = 1;
+	for(c = clients; c && ncls < MAXCLIENTS - 1; c = c->next){
+		if(c->virt != curdesk)
+			continue;
+		names[ncls] = strdup(c->label ? c->label : "(unnamed)");
+		if(!names[ncls])
+			continue;
+		cls[ncls] = c;
+		ncls++;
+	}
+	names[ncls] = strdup("Exit");
+	if(names[ncls]){
+		cls[ncls] = NULL;
+		ncls++;
+	}
+	if(*selp >= ncls)
+		*selp = ncls - 1;
+	if(*selp < 0)
+		*selp = 0;
+	return ncls;
 }
 
 static void
