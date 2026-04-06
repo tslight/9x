@@ -1323,309 +1323,6 @@ winmenu_rebuild(Client **cls, char **names, int *selp)
 	return ncls;
 }
 
-static void launch(void);
-static void
-winmenu(int mx, int my)
-{
-	Window mw;
-	XSetWindowAttributes sa;
-	XEvent ev;
-	XftDraw *xd;
-	Client *cls[MAXCLIENTS];
-	char *names[MAXCLIENTS];
-	int ncls, itemh, mw_w, mw_h, x, y, i;
-	int sel, done, armed;
-	int dolaunch = 0;
-	Client *reshapetarget = NULL;
-
-	if(!xftfont)
-		return;
-
-	if(tab_active)
-		tab_hide(0);
-
-	sel = 0;
-	ncls = winmenu_rebuild(cls, names, &sel);
-	if(ncls == 0)
-		return;
-
-	itemh = xftfont->ascent + xftfont->descent;
-	mw_w = 0;
-	for(i = 0; i < ncls; i++){
-		int tw = xft_textwidth(names[i],
-			(int)strlen(names[i])) + 8;
-		if(tw > mw_w) mw_w = tw;
-	}
-	if(mw_w < 200) mw_w = 200;
-	if(mw_w > (int)sw - 40) mw_w = (int)sw - 40;
-	mw_h = ncls * itemh;
-
-	x = mx; y = my;
-	if(x + mw_w > (int)sw) x = (int)sw - mw_w;
-	if(y + mw_h > (int)sh) y = (int)sh - mw_h;
-	if(x < 0) x = 0;
-	if(y < 0) y = 0;
-
-	sa.override_redirect = True;
-	sa.background_pixel = col_menu_bg;
-	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
-		| PointerMotionMask | ButtonReleaseMask;
-
-	mw = XCreateWindow(dpy, root, x, y,
-		(unsigned int)mw_w, (unsigned int)mw_h, 2,
-		CopyFromParent, InputOutput, CopyFromParent,
-		CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask,
-		&sa);
-	XMapRaised(dpy, mw);
-
-	xd = XftDrawCreate(dpy, mw, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen));
-	XGrabPointer(dpy, mw, True,
-		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
-		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	/* grab keyboard to prevent alt-tab on open menu conflict */
-	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
-		CurrentTime) != GrabSuccess){
-		XUngrabPointer(dpy, CurrentTime);
-		XftDrawDestroy(xd);
-		XDestroyWindow(dpy, mw);
-		freenames(names, ncls);
-		return;
-	}
-
-	armed = 0;
-	done = 0;
-	menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
-
-	/* warp pointer to first menu item */
-	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
-
-	while(!done){
-		XNextEvent(dpy, &ev);
-		switch(ev.type){
-		case KeyPress:
-			done = 1;
-			break;
-		case UnmapNotify:
-			unmapnotify(&ev.xunmap);
-			freenames(names, ncls);
-			ncls = winmenu_rebuild(cls, names, &sel);
-			if(ncls == 0){ done = 1; break; }
-			mw_h = ncls * itemh;
-			XResizeWindow(dpy, mw, (unsigned int)mw_w,
-				(unsigned int)mw_h);
-			XftDrawChange(xd, mw);
-			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
-			break;
-		case DestroyNotify:
-			destroynotify(&ev.xdestroywindow);
-			freenames(names, ncls);
-			ncls = winmenu_rebuild(cls, names, &sel);
-			if(ncls == 0){ done = 1; break; }
-			mw_h = ncls * itemh;
-			XResizeWindow(dpy, mw, (unsigned int)mw_w,
-				(unsigned int)mw_h);
-			XftDrawChange(xd, mw);
-			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
-			break;
-		case Expose:
-			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
-			break;
-		case MotionNotify:
-			if(armed){
-				int ny = ev.xmotion.y;
-				int old = sel;
-				if(ny >= 0 && ny < ncls * itemh)
-					sel = ny / itemh;
-				if(sel != old)
-					menu_draw(mw, xd, names, ncls,
-						sel, itemh, mw_w);
-			}
-			break;
-		case ButtonRelease:
-			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
-			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
-				done = 1;
-				break;
-			}
-			if(!armed){ armed = 1; break; }
-			switch(ev.xbutton.button){
-			case Button1:
-				if(sel >= 0 && sel < ncls){
-					if(cls[sel] == NULL){
-						if(sel == 0)
-							dolaunch = 1;
-						else
-							running = 0;
-					} else {
-					    Client *c = cls[sel];
-					    promote(c);
-					    focus(c);
-					    XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
-					        (int)c->dx/2, (int)c->dy/2);
-					}
-				}
-				done = 1;
-				break;
-			case Button2:
-				if(sel >= 0 && sel < ncls && cls[sel])
-					closeclient(cls[sel]);
-				break;
-			case Button3:
-				if(sel >= 0 && sel < ncls && cls[sel])
-					reshapetarget = cls[sel];
-				done = 1;
-				break;
-			default:
-				done = 1;
-				break;
-			}
-			break;
-		case ButtonPress:
-			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
-			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
-				done = 1;
-			}
-			break;
-		}
-	}
-	freenames(names, ncls);
-	XUngrabPointer(dpy, CurrentTime);
-	XUngrabKeyboard(dpy, CurrentTime);
-	XftDrawDestroy(xd);
-	XDestroyWindow(dpy, mw);
-	XFlush(dpy);
-
-	if(dolaunch){
-	    launch();
-	    return;
-	}
-
-	if(reshapetarget){
-		promote(reshapetarget);
-		focus(reshapetarget);
-		reshapeclient(reshapetarget);
-	}
-}
-
-static void
-deskmenu(int mx, int my)
-{
-	Window mw;
-	XSetWindowAttributes sa;
-	XEvent ev;
-	XftDraw *xd;
-	int itemh, mw_w, mw_h, x, y, i;
-	int sel, done, armed;
-	char dnames[NDESKS][4];
-	char *dp[NDESKS];
-
-	if(!xftfont)
-		return;
-
-	if(tab_active)
-		tab_hide(0);
-
-	for(i = 0; i < NDESKS; i++){
-		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
-		dp[i] = dnames[i];
-	}
-
-	itemh = xftfont->ascent + xftfont->descent;
-	mw_w = 0;
-	for(i = 0; i < NDESKS; i++){
-		int tw = xft_textwidth(dp[i], (int)strlen(dp[i])) + 4;
-		if(tw > mw_w) mw_w = tw;
-	}
-	if(mw_w < 80) mw_w = 80;
-	mw_h = NDESKS * itemh;
-
-	x = mx; y = my;
-	if(x + mw_w > (int)sw) x = (int)sw - mw_w;
-	if(y + mw_h > (int)sh) y = (int)sh - mw_h;
-	if(x < 0) x = 0;
-	if(y < 0) y = 0;
-
-	sa.override_redirect = True;
-	sa.background_pixel = col_menu_bg;
-	sa.border_pixel = col_menu_bd;
-	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
-		| PointerMotionMask | ButtonReleaseMask;
-
-	mw = XCreateWindow(dpy, root, x, y,
-		(unsigned int)mw_w, (unsigned int)mw_h, 2,
-		CopyFromParent, InputOutput, CopyFromParent,
-		CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask,
-		&sa);
-	XMapRaised(dpy, mw);
-
-	xd = XftDrawCreate(dpy, mw, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen));
-	XGrabPointer(dpy, mw, True,
-		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
-		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-	/* grab keyboard to prevent alt-tab on open menu conflict */
-	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
-		CurrentTime) != GrabSuccess){
-		XUngrabPointer(dpy, CurrentTime);
-		XftDrawDestroy(xd);
-		XDestroyWindow(dpy, mw);
-		return;
-	}
-
-	armed = 0;
-	sel = curdesk;
-	done = 0;
-	menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
-
-	/* warp pointer to first menu item */
-	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
-
-	while(!done){
-		XNextEvent(dpy, &ev);
-		switch(ev.type){
-		case KeyPress:
-			done = 1;
-			break;
-		case Expose:
-			menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
-			break;
-		case MotionNotify:
-			if(armed){
-				int ny = ev.xmotion.y;
-				int old = sel;
-				if(ny >= 0 && ny < NDESKS * itemh)
-					sel = ny / itemh;
-				if(sel != old)
-					menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
-			}
-			break;
-		case ButtonRelease:
-			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
-			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
-				done = 1;
-				break;
-			}
-			if(!armed){ armed = 1; break; }
-			if(sel >= 0 && sel < NDESKS)
-				switch_to(sel);
-			done = 1;
-			break;
-		case ButtonPress:
-			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
-			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
-				done = 1;
-			}
-			break;
-		}
-	}
-	XUngrabPointer(dpy, CurrentTime);
-	XUngrabKeyboard(dpy, CurrentTime);
-	XftDrawDestroy(xd);
-	XDestroyWindow(dpy, mw);
-}
-
 static int
 execcmp(const void *a, const void *b)
 {
@@ -1762,7 +1459,7 @@ launch(void)
 	char input[INPUTMAX];
 	char chosen[INPUTMAX];
 	char **filtered;
-	int len, done, sweep;
+	int len, done = 0, sweep = 0;
 	int mw_w, mw_h, itemh, nfilt, fsel;
 	int x, y, maxlines;
 	size_t i;
@@ -1802,8 +1499,8 @@ launch(void)
 	sa.override_redirect = True;
 	sa.background_pixel = col_menu_bg;
 	sa.border_pixel = col_menu_bd;
-	sa.event_mask = KeyPressMask | ButtonPressMask |
-		ButtonReleaseMask | PointerMotionMask;
+	/* keyboard events via window mask; pointer events via grab */
+	sa.event_mask = KeyPressMask;
 
 	mw = XCreateWindow(dpy, root, x, y,
 		(unsigned int)mw_w, (unsigned int)mw_h, 2,
@@ -1833,8 +1530,6 @@ launch(void)
 
 	exec_draw(mw, xd, filtered, nfilt, fsel, input, itemh, mw_w);
 
-	sweep = 0;
-	done = 0;
 	while(!done){
 		XNextEvent(dpy, &ev);
 		if(ev.type == KeyPress){
@@ -1946,6 +1641,308 @@ launch(void)
 		else
 			spawn(chosen);
 	}
+}
+
+static void
+winmenu(int mx, int my)
+{
+	Window mw;
+	XSetWindowAttributes sa;
+	XEvent ev;
+	XftDraw *xd;
+	Client *cls[MAXCLIENTS];
+	char *names[MAXCLIENTS];
+	int ncls, itemh, mw_w, mw_h, x, y, i;
+	int sel, done, armed;
+	int dolaunch = 0;
+	Client *reshapetarget = NULL;
+
+	if(!xftfont)
+		return;
+
+	if(tab_active)
+		tab_hide(0);
+
+	sel = 0;
+	ncls = winmenu_rebuild(cls, names, &sel);
+	if(ncls == 0)
+		return;
+
+	itemh = xftfont->ascent + xftfont->descent;
+	mw_w = 0;
+	for(i = 0; i < ncls; i++){
+		int tw = xft_textwidth(names[i],
+			(int)strlen(names[i])) + 8;
+		if(tw > mw_w) mw_w = tw;
+	}
+	if(mw_w < 200) mw_w = 200;
+	if(mw_w > (int)sw - 40) mw_w = (int)sw - 40;
+	mw_h = ncls * itemh;
+
+	x = mx; y = my;
+	if(x + mw_w > (int)sw) x = (int)sw - mw_w;
+	if(y + mw_h > (int)sh) y = (int)sh - mw_h;
+	if(x < 0) x = 0;
+	if(y < 0) y = 0;
+
+	sa.override_redirect = True;
+	sa.background_pixel = col_menu_bg;
+	sa.border_pixel = col_menu_bd;
+	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
+		| PointerMotionMask | ButtonReleaseMask;
+
+	mw = XCreateWindow(dpy, root, x, y,
+		(unsigned int)mw_w, (unsigned int)mw_h, 2,
+		CopyFromParent, InputOutput, CopyFromParent,
+		CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask,
+		&sa);
+	XMapRaised(dpy, mw);
+
+	xd = XftDrawCreate(dpy, mw, DefaultVisual(dpy, screen),
+		DefaultColormap(dpy, screen));
+	XGrabPointer(dpy, mw, False,
+		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	/* grab keyboard to prevent alt-tab on open menu conflict */
+	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess){
+		XUngrabPointer(dpy, CurrentTime);
+		XftDrawDestroy(xd);
+		XDestroyWindow(dpy, mw);
+		freenames(names, ncls);
+		return;
+	}
+
+	armed = 0;
+	done = 0;
+	menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
+
+	/* warp pointer to first menu item */
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
+
+	while(!done){
+		XNextEvent(dpy, &ev);
+		switch(ev.type){
+		case KeyPress:
+			done = 1;
+			break;
+		case UnmapNotify:
+			unmapnotify(&ev.xunmap);
+			freenames(names, ncls);
+			ncls = winmenu_rebuild(cls, names, &sel);
+			if(ncls == 0){ done = 1; break; }
+			mw_h = ncls * itemh;
+			XResizeWindow(dpy, mw, (unsigned int)mw_w,
+				(unsigned int)mw_h);
+			XftDrawChange(xd, mw);
+			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
+			break;
+		case DestroyNotify:
+			destroynotify(&ev.xdestroywindow);
+			freenames(names, ncls);
+			ncls = winmenu_rebuild(cls, names, &sel);
+			if(ncls == 0){ done = 1; break; }
+			mw_h = ncls * itemh;
+			XResizeWindow(dpy, mw, (unsigned int)mw_w,
+				(unsigned int)mw_h);
+			XftDrawChange(xd, mw);
+			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
+			break;
+		case Expose:
+			menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
+			break;
+		case MotionNotify:
+			if(armed){
+				int ny = ev.xmotion.y;
+				int old = sel;
+				if(ny >= 0 && ny < ncls * itemh)
+					sel = ny / itemh;
+				if(sel != old)
+					menu_draw(mw, xd, names, ncls,
+						sel, itemh, mw_w);
+			}
+			break;
+		case ButtonRelease:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
+			if(!armed){ armed = 1; break; }
+			switch(ev.xbutton.button){
+			case Button1:
+				if(sel >= 0 && sel < ncls){
+					if(cls[sel] == NULL){
+						if(sel == 0)
+							dolaunch = 1;
+						else
+							running = 0;
+					} else {
+						Client *c = cls[sel];
+						promote(c);
+						focus(c);
+						XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
+							(int)c->dx/2, (int)c->dy/2);
+					}
+				}
+				done = 1;
+				break;
+			case Button2:
+				if(sel >= 0 && sel < ncls && cls[sel])
+					closeclient(cls[sel]);
+				break;
+			case Button3:
+				if(sel >= 0 && sel < ncls && cls[sel])
+					reshapetarget = cls[sel];
+				done = 1;
+				break;
+			default:
+				done = 1;
+				break;
+			}
+			break;
+		case ButtonPress:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+			}
+			break;
+		}
+	}
+	freenames(names, ncls);
+	XUngrabPointer(dpy, CurrentTime);
+	XUngrabKeyboard(dpy, CurrentTime);
+	XftDrawDestroy(xd);
+	XDestroyWindow(dpy, mw);
+	XFlush(dpy);
+
+	if(dolaunch){
+		launch();
+		return;
+	}
+
+	if(reshapetarget){
+		promote(reshapetarget);
+		focus(reshapetarget);
+		reshapeclient(reshapetarget);
+	}
+}
+
+static void
+deskmenu(int mx, int my)
+{
+	Window mw;
+	XSetWindowAttributes sa;
+	XEvent ev;
+	XftDraw *xd;
+	int itemh, mw_w, mw_h, x, y, i;
+	int sel, done, armed;
+	char dnames[NDESKS][4];
+	char *dp[NDESKS];
+
+	if(!xftfont)
+		return;
+
+	if(tab_active)
+		tab_hide(0);
+
+	for(i = 0; i < NDESKS; i++){
+		snprintf(dnames[i], sizeof dnames[i], "%d", i + 1);
+		dp[i] = dnames[i];
+	}
+
+	itemh = xftfont->ascent + xftfont->descent;
+	mw_w = 0;
+	for(i = 0; i < NDESKS; i++){
+		int tw = xft_textwidth(dp[i], (int)strlen(dp[i])) + 4;
+		if(tw > mw_w) mw_w = tw;
+	}
+	if(mw_w < 80) mw_w = 80;
+	mw_h = NDESKS * itemh;
+
+	x = mx; y = my;
+	if(x + mw_w > (int)sw) x = (int)sw - mw_w;
+	if(y + mw_h > (int)sh) y = (int)sh - mw_h;
+	if(x < 0) x = 0;
+	if(y < 0) y = 0;
+
+	sa.override_redirect = True;
+	sa.background_pixel = col_menu_bg;
+	sa.border_pixel = col_menu_bd;
+	sa.event_mask = ExposureMask | ButtonPressMask | KeyPressMask
+		| PointerMotionMask | ButtonReleaseMask;
+
+	mw = XCreateWindow(dpy, root, x, y,
+		(unsigned int)mw_w, (unsigned int)mw_h, 2,
+		CopyFromParent, InputOutput, CopyFromParent,
+		CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask,
+		&sa);
+	XMapRaised(dpy, mw);
+
+	xd = XftDrawCreate(dpy, mw, DefaultVisual(dpy, screen),
+		DefaultColormap(dpy, screen));
+	XGrabPointer(dpy, mw, False,
+		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+	/* grab keyboard to prevent alt-tab on open menu conflict */
+	if(XGrabKeyboard(dpy, mw, True, GrabModeAsync, GrabModeAsync,
+		CurrentTime) != GrabSuccess){
+		XUngrabPointer(dpy, CurrentTime);
+		XftDrawDestroy(xd);
+		XDestroyWindow(dpy, mw);
+		return;
+	}
+
+	armed = 0;
+	sel = curdesk;
+	done = 0;
+	menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
+
+	/* warp pointer to first menu item */
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
+
+	while(!done){
+		XNextEvent(dpy, &ev);
+		switch(ev.type){
+		case KeyPress:
+			done = 1;
+			break;
+		case Expose:
+			menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
+			break;
+		case MotionNotify:
+			if(armed){
+				int ny = ev.xmotion.y;
+				int old = sel;
+				if(ny >= 0 && ny < NDESKS * itemh)
+					sel = ny / itemh;
+				if(sel != old)
+					menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
+			}
+			break;
+		case ButtonRelease:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+				break;
+			}
+			if(!armed){ armed = 1; break; }
+			if(sel >= 0 && sel < NDESKS)
+				switch_to(sel);
+			done = 1;
+			break;
+		case ButtonPress:
+			if(ev.xbutton.x < 0 || ev.xbutton.x >= mw_w
+			|| ev.xbutton.y < 0 || ev.xbutton.y >= mw_h){
+				done = 1;
+			}
+			break;
+		}
+	}
+	XUngrabPointer(dpy, CurrentTime);
+	XUngrabKeyboard(dpy, CurrentTime);
+	XftDrawDestroy(xd);
+	XDestroyWindow(dpy, mw);
 }
 
 static void
