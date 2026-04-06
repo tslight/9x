@@ -1399,9 +1399,7 @@ winmenu(int mx, int my)
 	menu_draw(mw, xd, names, ncls, sel, itemh, mw_w);
 
 	/* warp pointer to first menu item */
-	int wx = x + mw_w/2;
-	int wy = y + itemh/2;
-	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
 
 	while(!done){
 		XNextEvent(dpy, &ev);
@@ -1456,10 +1454,10 @@ winmenu(int mx, int my)
 			case Button1:
 				if(sel >= 0 && sel < ncls){
 					if(cls[sel] == NULL){
-					    if(sel == 0)
-					        dolaunch = 1;
-					    else
-					        running = 0;
+						if(sel == 0)
+							dolaunch = 1;
+						else
+							running = 0;
 					} else {
 					    Client *c = cls[sel];
 					    promote(c);
@@ -1471,11 +1469,11 @@ winmenu(int mx, int my)
 				done = 1;
 				break;
 			case Button2:
-				if(sel >= 0 && sel < ncls)
+				if(sel >= 0 && sel < ncls && cls[sel])
 					closeclient(cls[sel]);
 				break;
 			case Button3:
-				if(sel >= 0 && sel < ncls)
+				if(sel >= 0 && sel < ncls && cls[sel])
 					reshapetarget = cls[sel];
 				done = 1;
 				break;
@@ -1582,9 +1580,7 @@ deskmenu(int mx, int my)
 	menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
 
 	/* warp pointer to first menu item */
-	int wx = x + mw_w/2;
-	int wy = y + itemh/2;
-	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
+	XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2, itemh/2);
 
 	while(!done){
 		XNextEvent(dpy, &ev);
@@ -1766,11 +1762,10 @@ launch(void)
 	char input[INPUTMAX];
 	char chosen[INPUTMAX];
 	char **filtered;
-	int len, done;
+	int len, done, sweep;
 	int mw_w, mw_h, itemh, nfilt, fsel;
 	int x, y, maxlines;
 	size_t i;
-	int sweep = 0;
 
 	if(!xftfont)
 		return;
@@ -1832,13 +1827,13 @@ launch(void)
 
 	/* warp pointer to first menu item, if available */
 	if(nfilt > 0){
-		int wx = x + mw_w/2;
-		int wy = y + itemh + itemh/2;
-		XWarpPointer(dpy, None, mw, 0, 0, 0, 0, wx - x, wy - y);
+		XWarpPointer(dpy, None, mw, 0, 0, 0, 0, mw_w/2,
+			itemh + itemh/2);
 	}
 
 	exec_draw(mw, xd, filtered, nfilt, fsel, input, itemh, mw_w);
 
+	sweep = 0;
 	done = 0;
 	while(!done){
 		XNextEvent(dpy, &ev);
