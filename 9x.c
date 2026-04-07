@@ -120,6 +120,7 @@ static XftFont      *xftfont;
 static Cursor        c_arrow, c_sweep, c_box;
 static Cursor        c_border[NBorder];
 static Atom          wm_protocols, wm_delete, wm_take_focus, wm_state;
+static Atom          net_wm_name;
 static Client       *clients;
 static Client       *current;
 static unsigned long col_active, col_inactive;
@@ -442,11 +443,28 @@ frameclient(Window w)
 static void
 getname(Client *c)
 {
+	Atom type;
+	int fmt;
+	unsigned long nitems, after;
+	unsigned char *data = NULL;
+	char *fetched = NULL;
+
 	if(c->label){
-		XFree(c->label);
+		free(c->label);
 		c->label = NULL;
 	}
-	XFetchName(dpy, c->win, &c->label);
+	if(XGetWindowProperty(dpy, c->win, net_wm_name, 0, 512, False,
+		XInternAtom(dpy, "UTF8_STRING", False),
+		&type, &fmt, &nitems, &after, &data) == Success
+	&& data){
+		c->label = strdup((char *)data);
+		XFree(data);
+		return;
+	}
+	if(XFetchName(dpy, c->win, &fetched) && fetched){
+		c->label = strdup(fetched);
+		XFree(fetched);
+	}
 }
 
 static void
@@ -2144,7 +2162,9 @@ propertynotify(XPropertyEvent *e)
 	Client *c;
 
 	c = winclient(e->window);
-	if(c && e->atom == XA_WM_NAME)
+	if(!c)
+		return;
+	if(e->atom == XA_WM_NAME || e->atom == net_wm_name)
 		getname(c);
 }
 
@@ -2268,6 +2288,7 @@ setup(void)
 	wm_delete     = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 	wm_take_focus = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
 	wm_state      = XInternAtom(dpy, "WM_STATE", False);
+	net_wm_name   = XInternAtom(dpy, "_NET_WM_NAME", False);
 
 	col_active   = getcolor(COL_ACTIVE);
 	col_inactive = getcolor(COL_INACTIVE);
