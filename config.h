@@ -19,3 +19,4 @@
 #define BAR_PAD     2
 #define BAR_REFRESH 60
 #define TIMEFMT     "%H:%M %a %d/%m"
+#define DBLCLICK_MS 500

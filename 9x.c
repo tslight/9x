@@ -144,6 +144,9 @@ static int           sweep_pending;
 static int           sweep_x, sweep_y;
 static unsigned int  sweep_dx, sweep_dy;
 
+static Time          last_click_time;
+static Window        last_click_win;
+
 static int           curdesk;
 static Client       *deskfocus[NDESKS];
 
@@ -1049,23 +1052,16 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			bx = nx - BORDER; by = ny - BORDER;
 			bdx = (unsigned int)ndx + 2*BORDER;
 			bdy = (unsigned int)ndy + 2*BORDER;
+			c->maximized = 0;
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonPress){
-			if(ev.xbutton.button == Button3){
-				outline_hide();
-				XUngrabPointer(dpy, CurrentTime);
-				maximize(c);
-				return;
-			}
 			outline_hide();
 			break;
 		} else if(ev.type == ButtonRelease){
 			outline_hide();
 			c->x = bx + BORDER; c->y = by + BORDER;
 			c->dx = bdx - 2*BORDER; c->dy = bdy - 2*BORDER;
-			c->maximized = 0;
-			c->fullscreen = 0;
 			applylayout(c);
 			sendconfig(c);
 			raisebar();
@@ -1968,12 +1964,31 @@ buttonpress(XButtonEvent *e)
 		return;
 	bl = borderorient(c, e->x, e->y);
 	if(bl != BorderUnknown){
-		if(e->button == 1)
+		if(e->button == 1){
+			/* double-click on border: toggle maximize */
+			if(e->window == last_click_win
+			&& e->time - last_click_time < DBLCLICK_MS){
+				int px = e->x_root;
+				int py = e->y_root;
+				int old_fx = c->x - BORDER;
+				int old_fy = c->y - BORDER;
+				last_click_time = 0;
+				last_click_win = None;
+				maximize(c);
+				/* track & restore pointer */
+				XWarpPointer(dpy, None, root, 0, 0, 0, 0,
+					px - old_fx + (c->x - BORDER),
+					py - old_fy + (c->y - BORDER));
+				return;
+			}
+			last_click_time = e->time;
+			last_click_win = e->window;
 			pullclient(c, bl, e);
-		else if(e->button == 2)
+		} else if(e->button == 2){
 			closeclient(c);
-		else if(e->button == 3)
+		} else if(e->button == 3){
 			moveclient(c, e);
+		}
 	}
 	promote(c);
 	focus(c);
