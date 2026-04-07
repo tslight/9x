@@ -16,9 +16,6 @@
 NAME
      9x more scum & rats than rio. Just say NEIN.
 
-SYNOPSIS
-     9x [-v]
-
 DESCRIPTION
      9x is a scummy X11 window manager. A rat infested rio rip-off.
      It provides far more than you bargained for.
@@ -57,7 +54,7 @@ KEYBOARD
 
 LAUNCHER
 	 Button 1	Spawn.
-	 Button 2	Sweep.
+	 Button 3	Sweep.
      Return     Spawn.
 	 Alt+Return Sweep.
      Tab        Complete.
