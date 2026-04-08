@@ -120,7 +120,7 @@ static XftFont      *xftfont;
 static Cursor        c_arrow, c_sweep, c_box;
 static Cursor        c_border[NBorder];
 static Atom          wm_protocols, wm_delete, wm_take_focus, wm_state;
-static Atom          net_wm_name;
+static Atom          net_wm_name, utf8_string;
 static Client       *clients;
 static Client       *current;
 static unsigned long col_active, col_inactive;
@@ -454,8 +454,7 @@ getname(Client *c)
 		c->label = NULL;
 	}
 	if(XGetWindowProperty(dpy, c->win, net_wm_name, 0, 512, False,
-		XInternAtom(dpy, "UTF8_STRING", False),
-		&type, &fmt, &nitems, &after, &data) == Success
+		utf8_string, &type, &fmt, &nitems, &after, &data) == Success
 	&& data){
 		c->label = strdup((char *)data);
 		XFree(data);
@@ -768,7 +767,7 @@ unmanage(Client *c)
 		focusnext();
 	raisebar();
 	if(c->label)
-		XFree(c->label);
+		free(c->label);
 	free(c);
 }
 
@@ -1071,6 +1070,7 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			bdx = (unsigned int)ndx + 2*BORDER;
 			bdy = (unsigned int)ndy + 2*BORDER;
 			c->maximized = 0;
+			c->fullscreen = 0;
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonPress){
@@ -1645,6 +1645,7 @@ winmenu(int mx, int my)
 	XSetWindowAttributes sa;
 	XEvent ev;
 	XftDraw *xd;
+	Client *c;
 	Client *cls[MAXCLIENTS];
 	char *names[MAXCLIENTS];
 	int ncls, itemh, mw_w, mw_h, x, y, i;
@@ -1773,7 +1774,7 @@ winmenu(int mx, int my)
 						else
 							running = 0;
 					} else {
-						Client *c = cls[sel];
+						c = cls[sel];
 						promote(c);
 						focus(c);
 						XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
@@ -2007,6 +2008,7 @@ buttonpress(XButtonEvent *e)
 		} else if(e->button == 3){
 			moveclient(c, e);
 		}
+		return;
 	}
 	promote(c);
 	focus(c);
@@ -2289,6 +2291,7 @@ setup(void)
 	wm_take_focus = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
 	wm_state      = XInternAtom(dpy, "WM_STATE", False);
 	net_wm_name   = XInternAtom(dpy, "_NET_WM_NAME", False);
+	utf8_string   = XInternAtom(dpy, "UTF8_STRING", False);
 
 	col_active   = getcolor(COL_ACTIVE);
 	col_inactive = getcolor(COL_INACTIVE);
@@ -2367,7 +2370,7 @@ cleanup(void)
 		XReparentWindow(dpy, c->win, root, c->x, c->y);
 		XRemoveFromSaveSet(dpy, c->win);
 		XDestroyWindow(dpy, c->frame);
-		if(c->label) XFree(c->label);
+		if(c->label) free(c->label);
 		free(c);
 	}
 	clients = NULL;
