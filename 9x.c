@@ -1965,9 +1965,16 @@ buttonpress(XButtonEvent *e)
 {
 	Client *c;
 	int bl;
+	unsigned int btn;
+
+	btn = e->button;
+	if(btn == Button1 && (e->state & ControlMask))
+		btn = Button3;
+	else if(btn == Button1 && (e->state & Mod1Mask))
+		btn = Button2;
 
 	if(e->window == root || e->window == barwin){
-		switch(e->button){
+		switch(btn){
 		case Button1:
 			winmenu(e->x_root, e->y_root);
 			break;
@@ -2002,7 +2009,7 @@ buttonpress(XButtonEvent *e)
 		return;
 	bl = borderorient(c, e->x, e->y);
 	if(bl != BorderUnknown){
-		if(e->button == 1){
+		if(btn == 1){
 			/* double-click on border: toggle maximize */
 			if(e->window == last_click_win
 			&& e->time - last_click_time < DBLCLICK_MS){
@@ -2022,9 +2029,9 @@ buttonpress(XButtonEvent *e)
 			last_click_time = e->time;
 			last_click_win = e->window;
 			pullclient(c, bl, e);
-		} else if(e->button == 2){
+		} else if(btn == 2){
 			closeclient(c);
-		} else if(e->button == 3){
+		} else if(btn == 3){
 			moveclient(c, e);
 		}
 		return;
