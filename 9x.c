@@ -1513,7 +1513,7 @@ launch(void)
 					strncpy(chosen, input, INPUTMAX-1);
 					chosen[INPUTMAX-1] = '\0';
 				}
-				if(ev.xkey.state & Mod1Mask)
+				if(ev.xkey.state & MOD)
 					sweep = 1;
 				done = 1;
 			} else if(ks == XK_Tab){
@@ -1751,7 +1751,8 @@ winmenu(int mx, int my)
 			if(armed){
 				int ny = ev.xmotion.y;
 				int old = sel;
-				if(ny >= 0 && ny < ncls * itemh)
+				if(ev.xmotion.x >= 0 && ev.xmotion.x < mw_w
+				&& ny >= 0 && ny < ncls * itemh)
 					sel = ny / itemh;
 				if(sel != old)
 					menu_draw(mw, xd, names, ncls,
@@ -1910,7 +1911,8 @@ deskmenu(int mx, int my)
 			if(armed){
 				int ny = ev.xmotion.y;
 				int old = sel;
-				if(ny >= 0 && ny < NDESKS * itemh)
+				if(ev.xmotion.x >= 0 && ev.xmotion.x < mw_w
+				&& ny >= 0 && ny < NDESKS * itemh)
 					sel = ny / itemh;
 				if(sel != old)
 					menu_draw(mw, xd, dp, NDESKS, sel, itemh, mw_w);
@@ -2094,7 +2096,8 @@ keyrelease(XKeyEvent *e)
 		return;
 	ks = XLookupKeysym(e, 0);
 	if(ks == XK_Alt_L || ks == XK_Alt_R
-	|| ks == XK_Meta_L || ks == XK_Meta_R)
+	|| ks == XK_Meta_L || ks == XK_Meta_R
+	|| ks == XK_Control_L || ks == XK_Control_R)
 		tab_hide(1);
 }
 
