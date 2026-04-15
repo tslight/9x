@@ -43,20 +43,20 @@ MOUSE
      Doubleclick Maximize.
 
 KEYBOARD
-     Alt+Space         Broom cupboard.
-     Alt+Tab           Cycle windows.
-     Alt+Shift+Tab     Reverse cycle windows.
-     Alt+F4            Delete.
-     Alt+F10           Maximize.
-     Alt+F11           Fullscreen.
-     Alt+[1..9]        Desktop 1-9.
-     Alt+Shift+[1..9]  Window to desktop 1-9.
+     MOD+Space         Broom cupboard.
+     MOD+Tab           Cycle windows.
+     MOD+Shift+Tab     Reverse cycle windows.
+     MOD+F4            Delete.
+     MOD+F10           Maximize.
+     MOD+F11           Fullscreen.
+     MOD+[1..9]        Desktop 1-9.
+     MOD+Shift+[1..9]  Window to desktop 1-9.
 
 LAUNCHER
 	 Button 1	Spawn.
 	 Button 3	Sweep.
      Return     Spawn.
-	 Alt+Return Sweep.
+	 MOD+Return Sweep.
      Tab        Complete.
      Backspace  Delete.
      Down       Next.
