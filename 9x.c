@@ -1162,6 +1162,23 @@ freenames(char **names, int n)
 	}
 }
 
+static const char *
+truncname(const char *name)
+{
+	static char buf[MAXNAMESIZE + 4];
+	int len;
+
+	len = (int)strlen(name);
+	if(len <= MAXNAMESIZE)
+		return name;
+	memcpy(buf, name, MAXNAMESIZE);
+	buf[MAXNAMESIZE]     = '.';
+	buf[MAXNAMESIZE + 1] = '.';
+	buf[MAXNAMESIZE + 2] = '.';
+	buf[MAXNAMESIZE + 3] = '\0';
+	return buf;
+}
+
 static void
 tab_draw(void)
 {
@@ -1220,7 +1237,7 @@ tab_show(void)
 		if(c->virt != curdesk)
 			continue;
 		name = c->label ? c->label : "(unnamed)";
-		tab_names[tab_n] = strdup(name);
+		tab_names[tab_n] = strdup(truncname(name));
 		if(!tab_names[tab_n])
 			continue;
 		tab_cls[tab_n] = c;
@@ -1620,7 +1637,7 @@ winmenu_rebuild(Client **cls, char **names, int *selp)
 	for(c = clients; c && ncls < MAXCLIENTS - 1; c = c->next){
 		if(c->virt != curdesk)
 			continue;
-		names[ncls] = strdup(c->label ? c->label : "(unnamed)");
+		names[ncls] = strdup(truncname(c->label ? c->label : "(unnamed)"));
 		if(!names[ncls])
 			continue;
 		cls[ncls] = c;

@@ -12,7 +12,7 @@
 
 #define BORDER      4
 #define CORNER      25
-#define MOD         Mod1Mask
+#define MOD         ControlMask
 #define XFTFONT     "monospace:size=9"
 #define TERM        "xterm"
 #define NDESKS      9
@@ -20,3 +20,4 @@
 #define BAR_REFRESH 60
 #define TIMEFMT     "%H:%M %a %d/%m"
 #define DBLCLICK_MS 500
+#define MAXNAMESIZE 50
