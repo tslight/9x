@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <err.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -140,7 +141,7 @@ static volatile sig_atomic_t running = 1;
 
 static Window        swout[4];
 
-static int           sweep_pending;
+static time_t        sweep_pending;
 static int           sweep_x, sweep_y;
 static unsigned int  sweep_dx, sweep_dy;
 
@@ -212,14 +213,15 @@ static XftColor
 getxftcolor(unsigned long rgb)
 {
 	XRenderColor rc;
-	XftColor c;
+	XftColor c = {0};
 
 	rc.red   = (unsigned short)(((rgb >> 16) & 0xFF) * 0x101);
 	rc.green = (unsigned short)(((rgb >> 8) & 0xFF) * 0x101);
 	rc.blue  = (unsigned short)((rgb & 0xFF) * 0x101);
 	rc.alpha = 0xFFFF;
-	XftColorAllocValue(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &rc, &c);
+	if(!XftColorAllocValue(dpy, DefaultVisual(dpy, screen),
+		DefaultColormap(dpy, screen), &rc, &c))
+		c.pixel = WhitePixel(dpy, screen);
 	return c;
 }
 
@@ -365,10 +367,10 @@ tabcmp(const void *a, const void *b)
 static void
 scan_path(void)
 {
-	char *path, *p, *dir;
+	char *path, *p, *dir, fullpath[PATH_MAX];
 	DIR *d;
 	struct dirent *ent;
-	int i;
+	int i, j;
 
 	path = getenv("PATH");
 	if(!path)
@@ -391,10 +393,8 @@ scan_path(void)
 				continue;
 			if(launch_ncmds >= MAXCMDS)
 				break;
-			for(i = 0; i < launch_ncmds; i++)
-				if(strcmp(launch_cmds[i], ent->d_name) == 0)
-					break;
-			if(i < launch_ncmds)
+			snprintf(fullpath, sizeof fullpath, "%s/%s", dir, ent->d_name);
+			if(access(fullpath, X_OK) != 0)
 				continue;
 			launch_cmds[launch_ncmds] = strdup(ent->d_name);
 			if(launch_cmds[launch_ncmds])
@@ -404,6 +404,13 @@ scan_path(void)
 	}
 	free(path);
 	qsort(launch_cmds, (size_t)launch_ncmds, sizeof(char *), cmdcmp);
+	for(i = 0, j = 0; i < launch_ncmds; i++){
+		if(j > 0 && strcmp(launch_cmds[j-1], launch_cmds[i]) == 0)
+			free(launch_cmds[i]);
+		else
+			launch_cmds[j++] = launch_cmds[i];
+	}
+	launch_ncmds = j;
 }
 
 static void
@@ -645,6 +652,9 @@ bar_drawtabs(int x, int tabarea, int rightw)
 				trunc[nlen+2] = '\0';
 				name = trunc;
 				nlen += 2;
+			} else {
+				name = "..";
+				nlen = 2;
 			}
 		}
 
@@ -750,16 +760,16 @@ borderorient(Client *c, int x, int y)
 		if(y >= fh - CORNER) return BorderESE;
 		return BorderE;
 	}
-	if(x <= CORNER){
-		if(y <= BORDER) return BorderNNW;
-		if(y >= fh - BORDER) return BorderSSW;
+	if(y <= BORDER){
+		if(x <= CORNER) return BorderNNW;
+		if(x >= fw - CORNER) return BorderNNE;
+		return BorderN;
 	}
-	if(x >= fw - CORNER){
-		if(y <= BORDER) return BorderNNE;
-		if(y >= fh - BORDER) return BorderSSE;
+	if(y >= fh - BORDER){
+		if(x <= CORNER) return BorderSSW;
+		if(x >= fw - CORNER) return BorderSSE;
+		return BorderS;
 	}
-	if(y <= BORDER) return BorderN;
-	if(y >= fh - BORDER) return BorderS;
 	return BorderUnknown;
 }
 
@@ -965,7 +975,7 @@ sendtodesktop(Client *c, int n)
 	if(current == c)
 		focusnext();
 	deskfocus[n] = c;
-	switch_to(n);
+	bar_redraw();
 }
 
 static void
@@ -1001,7 +1011,7 @@ manage(Window w)
 	c->win = w;
 	c->virt = curdesk;
 
-	if(sweep_pending){
+	if(sweep_pending && time(NULL) - sweep_pending < 2){
 		c->x = sweep_x;
 		c->y = sweep_y;
 		c->dx = sweep_dx;
@@ -1077,7 +1087,10 @@ unmanage(Client *c)
 	for(i = 0; i < NDESKS; i++)
 		if(deskfocus[i] == c)
 			deskfocus[i] = NULL;
-	current == c ? focusnext() : bar_redraw();
+	if(current == c)
+		focusnext();
+	else
+		bar_redraw();
 	free(c->label);
 	free(c);
 }
@@ -1322,7 +1335,7 @@ setsweep(int bx, int by, unsigned int bdx, unsigned int bdy)
 	sweep_y = by + BORDER;
 	sweep_dx = bdx - 2 * BORDER;
 	sweep_dy = bdy - 2 * BORDER;
-	sweep_pending = 1;
+	sweep_pending = time(NULL);
 }
 
 static void
@@ -1520,8 +1533,10 @@ buttonpress(XButtonEvent *e)
 	}
 
 	if(e->window == barwin){
-		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w)
+		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
+			launcher_show();
 			return;
+		}
 		for(i = 0; i < NDESKS; i++){
 			if(e->x >= bar_desk_x[i] && e->x < bar_desk_x[i] + bar_desk_w){
 				if(btn == Button1)
@@ -1903,7 +1918,7 @@ run(void)
 		if(now >= bar_deadline){
 			readbattery();
 			bar_redraw();
-			bar_deadline += BAR_REFRESH;
+			bar_deadline = now + BAR_REFRESH;
 		}
 
 		while(XPending(dpy)){
