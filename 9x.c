@@ -1411,9 +1411,9 @@ dosweep(int have_origin, int sx, int sy,
 			break;
 		}
 		case ButtonRelease:
+			done = 1;
 			break;
 		case ButtonPress:
-			done = 1;
 			break;
 		}
 	}
@@ -1771,8 +1771,14 @@ motionnotify(XMotionEvent *e)
 	int bl;
 
 	if(e->window == barwin){
-		if(launch_visible)
+		if(launch_visible){
+			int idx = launcher_hittest(e->x);
+			if(idx >= 0 && idx != launch_sel){
+				launch_sel = idx;
+				launcher_draw();
+			}
 			return;
+		}
 		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
 			launcher_show();
 		} else {
