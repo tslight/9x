@@ -26,20 +26,17 @@ OPTIONS
 
 MOUSE
    Window Tabs
-     Hover       Focus.
-     Button 1    Maximize.
+     Button 1    Focus.
      Button 2    Delete.
      Button 3    Re-Sweep.
-
-   Desktop Buttons
-     Button 1    Switch.
-     Button 3    Send window.
+     Doubleclick Maximize.
 
    Window Borders
-     Button 1     Resize.
-     Button 2     Delete.
-     Button 3     Move.
-     Doubleclick  Tile to that side.
+     Button 1         Resize.
+     Button 2         Delete.
+     Button 3         Move.
+     Doubleclick Top  Maximize.
+     Doubleclick Side Tile to side.
 
 KEYBOARD
      MOD+F11 Fullscreen.

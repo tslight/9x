@@ -4,6 +4,8 @@
  * Copyright (c) 2026 Toby Slight <0xff.art>
  */
 
+#include <ctype.h>
+#include <dirent.h>
 #include <err.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -33,6 +35,7 @@
 #include "config.h"
 
 #define MAXCLIENTS  512
+#define MAXCMDS     2048
 #define MINSIZE     20
 
 #define LENGTH(x)   (sizeof(x) / sizeof((x)[0]))
@@ -158,7 +161,20 @@ static int           bar_ntabs;
 
 static int           bar_run_x, bar_run_w;
 static int           bar_desk_x[NDESKS], bar_desk_w;
+static int           bar_status_x;
 static int           bar_exit_x, bar_exit_w;
+
+static int           launch_visible;
+static char         *launch_cmds[MAXCMDS];
+static int           launch_ncmds;
+static int           launch_sel = -1;
+static int           launch_scroll;
+static char          launch_filter[256];
+static int           launch_filterlen;
+static int           launch_filtered[MAXCMDS];
+static int           launch_nfiltered;
+
+static void bar_redraw(void);
 
 static void
 raisebar(void)
@@ -321,15 +337,250 @@ static void readbattery(void) { bar_batt = -1; }
 static void closebattery(void) {}
 #endif
 
+static int
+cmdcmp(const void *a, const void *b)
+{
+	return strcmp(*(char **)a, *(char **)b);
+}
+
+static void
+scan_path(void)
+{
+	char *path, *p, *dir;
+	DIR *d;
+	struct dirent *ent;
+	int i;
+
+	path = getenv("PATH");
+	if(!path)
+		return;
+	path = strdup(path);
+	if(!path)
+		return;
+
+	for(dir = path; dir; dir = p){
+		p = strchr(dir, ':');
+		if(p)
+			*p++ = '\0';
+		if(*dir == '\0')
+			continue;
+		d = opendir(dir);
+		if(!d)
+			continue;
+		while((ent = readdir(d)) != NULL){
+			if(ent->d_name[0] == '.')
+				continue;
+			if(launch_ncmds >= MAXCMDS)
+				break;
+			for(i = 0; i < launch_ncmds; i++)
+				if(strcmp(launch_cmds[i], ent->d_name) == 0)
+					break;
+			if(i < launch_ncmds)
+				continue;
+			launch_cmds[launch_ncmds] = strdup(ent->d_name);
+			if(launch_cmds[launch_ncmds])
+				launch_ncmds++;
+		}
+		closedir(d);
+	}
+	free(path);
+	qsort(launch_cmds, (size_t)launch_ncmds, sizeof(char *), cmdcmp);
+}
+
 static void
 bar_drawbtn(int x, int w, const char *s, int len, int sel, XftColor *bg)
 {
 	int ty = BAR_PAD + xftfont->ascent;
+	if(w <= 0)
+		return;
 	XftDrawRect(bardraw, sel ? &bar_sel : bg, x, 0, (unsigned int)w, barh);
 	XSetForeground(dpy, bargc, col_bar_bd);
-	XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)w - 1, barh - 1);
+	XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)(w - 1), barh - 1);
 	XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
 		x + BAR_BTN_PAD, ty, (const FcChar8 *)s, len);
+}
+
+static void
+launcher_draw(void)
+{
+	int i, x, ty, tw, maxw;
+	const char *name;
+	int nlen;
+	XGlyphInfo ext;
+
+	XSetForeground(dpy, bargc, bar_bg.pixel);
+	XFillRectangle(dpy, barpix, bargc, 0, 0, sw, barh);
+
+	ty = BAR_PAD + xftfont->ascent;
+	x = BAR_GAP;
+
+	XftDrawRect(bardraw, &bar_tab, x, 0, 200, barh);
+	XSetForeground(dpy, bargc, col_bar_bd);
+	XDrawRectangle(dpy, barpix, bargc, x, 0, 199, barh - 1);
+	XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
+		x + BAR_BTN_PAD, ty, (const FcChar8 *)launch_filter, launch_filterlen);
+	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)launch_filter, launch_filterlen, &ext);
+	XSetForeground(dpy, bargc, bar_fg.pixel);
+	XFillRectangle(dpy, barpix, bargc, x + BAR_BTN_PAD + ext.xOff, BAR_PAD, 2, barh - 2*BAR_PAD);
+	x += 200 + BAR_GAP;
+
+	maxw = (int)sw - x - BAR_GAP;
+	for(i = launch_scroll; i < launch_nfiltered && x < (int)sw - BAR_GAP; i++){
+		int idx = launch_filtered[i];
+		name = launch_cmds[idx];
+		nlen = (int)strlen(name);
+		XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)name, nlen, &ext);
+		tw = ext.xOff + 2*BAR_BTN_PAD;
+		if(tw > maxw)
+			tw = maxw;
+		if(tw <= 0)
+			continue;
+		if(i == launch_sel){
+			XftDrawRect(bardraw, &bar_sel, x, 0, (unsigned int)tw, barh);
+			XftDrawStringUtf8(bardraw, &bar_self, xftfont,
+				x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
+		} else {
+			XftDrawRect(bardraw, &bar_tab, x, 0, (unsigned int)tw, barh);
+			XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
+				x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
+		}
+		XSetForeground(dpy, bargc, col_bar_bd);
+		XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)(tw - 1), barh - 1);
+		x += tw + BAR_GAP;
+	}
+
+	XCopyArea(dpy, barpix, barwin, bargc, 0, 0, sw, barh, 0, 0);
+}
+
+static int
+cistrstr(const char *h, const char *n)
+{
+	size_t i, j, nlen;
+	if(!n[0]) return 1;
+	nlen = strlen(n);
+	for(i = 0; h[i]; i++){
+		for(j = 0; j < nlen && h[i+j]; j++)
+			if(tolower((unsigned char)h[i+j]) != tolower((unsigned char)n[j]))
+				break;
+		if(j == nlen) return 1;
+	}
+	return 0;
+}
+
+static void
+launcher_filter(void)
+{
+	int i;
+	launch_nfiltered = 0;
+	for(i = 0; i < launch_ncmds && launch_nfiltered < MAXCMDS; i++){
+		if(launch_filterlen == 0 || cistrstr(launch_cmds[i], launch_filter)){
+			launch_filtered[launch_nfiltered++] = i;
+		}
+	}
+	if(launch_nfiltered == 0)
+		launch_sel = -1;
+	else if(launch_sel >= launch_nfiltered)
+		launch_sel = launch_nfiltered - 1;
+	else if(launch_sel < 0)
+		launch_sel = 0;
+	launch_scroll = 0;
+}
+
+static void
+launcher_show(void)
+{
+	if(launch_visible || launch_ncmds == 0)
+		return;
+	launch_filter[0] = '\0';
+	launch_filterlen = 0;
+	launch_sel = 0;
+	launch_scroll = 0;
+	launcher_filter();
+	if(XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
+		return;
+	launch_visible = 1;
+	launcher_draw();
+}
+
+static void
+launcher_hide(void)
+{
+	if(!launch_visible)
+		return;
+	XUngrabKeyboard(dpy, CurrentTime);
+	launch_visible = 0;
+	bar_redraw();
+}
+
+static void
+launcher_key(XKeyEvent *e)
+{
+	char buf[32];
+	KeySym ks;
+	int len;
+
+	len = XLookupString(e, buf, sizeof(buf) - 1, &ks, NULL);
+
+	if(ks == XK_Escape){
+		launcher_hide();
+		return;
+	}
+	if(ks == XK_Return || ks == XK_KP_Enter){
+		if(launch_sel >= 0 && launch_sel < launch_nfiltered){
+			const char *cmd = launch_cmds[launch_filtered[launch_sel]];
+			launcher_hide();
+			spawn(cmd);
+		}
+		return;
+	}
+	if(ks == XK_BackSpace){
+		if(launch_filterlen > 0){
+			launch_filter[--launch_filterlen] = '\0';
+			launcher_filter();
+			launcher_draw();
+		}
+		return;
+	}
+	if(ks == XK_Left || ks == XK_Up){
+		if(launch_sel > 0){
+			launch_sel--;
+			if(launch_sel < launch_scroll)
+				launch_scroll = launch_sel;
+			launcher_draw();
+		}
+		return;
+	}
+	if(ks == XK_Right || ks == XK_Down){
+		if(launch_sel < launch_nfiltered - 1){
+			launch_sel++;
+			launcher_draw();
+		}
+		return;
+	}
+	if(ks == XK_Tab){
+		if(e->state & ShiftMask){
+			if(launch_sel > 0){
+				launch_sel--;
+				if(launch_sel < launch_scroll)
+					launch_scroll = launch_sel;
+			}
+		} else {
+			if(launch_sel < launch_nfiltered - 1)
+				launch_sel++;
+		}
+		launcher_draw();
+		return;
+	}
+
+	if(len > 0 && len < (int)sizeof(launch_filter) - launch_filterlen - 1){
+		if(buf[0] >= ' ' && buf[0] < 127){
+			memcpy(launch_filter + launch_filterlen, buf, (size_t)len);
+			launch_filterlen += len;
+			launch_filter[launch_filterlen] = '\0';
+			launcher_filter();
+			launcher_draw();
+		}
+	}
 }
 
 static void
@@ -371,17 +622,21 @@ bar_drawtabs(int x, int tabarea, int rightw)
 		c = bar_tabs[i];
 		name = c->label ? c->label : "(unnamed)";
 		nlen = (int)strlen(name);
+		if(nlen > 250)
+			nlen = 250;
 
 		int maxw = tw - 2 * BAR_BTN_PAD;
-		if(xft_textwidth(name, nlen) > maxw){
+		if(maxw > 0 && xft_textwidth(name, nlen) > maxw){
 			while(nlen > 0 && xft_textwidth(name, nlen) + xft_textwidth("..", 2) > maxw)
 				nlen--;
-			memcpy(trunc, name, (size_t)nlen);
-			trunc[nlen] = '.';
-			trunc[nlen+1] = '.';
-			trunc[nlen+2] = '\0';
-			name = trunc;
-			nlen += 2;
+			if(nlen > 0){
+				memcpy(trunc, name, (size_t)nlen);
+				trunc[nlen] = '.';
+				trunc[nlen+1] = '.';
+				trunc[nlen+2] = '\0';
+				name = trunc;
+				nlen += 2;
+			}
 		}
 
 		bar_tab_x[drawn] = tabx;
@@ -402,7 +657,7 @@ bar_drawtabs(int x, int tabarea, int rightw)
 		}
 		XSetForeground(dpy, bargc, col_bar_bd);
 		XDrawRectangle(dpy, barpix, bargc, tabx, 0,
-			(unsigned int)tw - 1, barh - 1);
+			(unsigned int)(tw - 1), barh - 1);
 		tabx += tw + BAR_GAP;
 	}
 	bar_ntabs = drawn;
@@ -465,6 +720,7 @@ bar_redraw(void)
 	}
 
 	/* Battery & Clock */
+	bar_status_x = x;
 	if(bbuf[0]){
 		XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, BAR_PAD + xftfont->ascent,
 			(const FcChar8 *)bbuf, blen);
@@ -549,11 +805,13 @@ getname(Client *c)
 	}
 	if(XGetWindowProperty(dpy, c->win, net_wm_name, 0, 512, False,
 		utf8_string, &type, &fmt, &nitems, &after, &data) == Success
-	&& data){
+	&& type == utf8_string && data && nitems > 0){
 		c->label = strdup((char *)data);
 		XFree(data);
 		return;
 	}
+	if(data)
+		XFree(data);
 	if(XFetchName(dpy, c->win, &fetched) && fetched){
 		c->label = strdup(fetched);
 		XFree(fetched);
@@ -662,6 +920,7 @@ focus(Client *c)
 	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
 	if(c->proto & Ptakefocus)
 		sendcmessage(c->win, wm_protocols, wm_take_focus);
+	XSync(dpy, False);
 	XClearArea(dpy, c->win, 0, 0, 0, 0, True);
 	XRaiseWindow(dpy, c->frame);
 	current = c;
@@ -1122,12 +1381,10 @@ dosweep(int have_origin, int sx, int sy,
 			break;
 		}
 		case ButtonRelease:
-			done = 1;
 			break;
 		case ButtonPress:
-			if(drawn) outline_hide();
-			XUngrabPointer(dpy, CurrentTime);
-			return 0;
+			done = 1;
+			break;
 		}
 	}
 
@@ -1197,7 +1454,6 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 	bx = ox - BORDER; by = oy - BORDER;
 	bdx = odx + 2*BORDER; bdy = ody + 2*BORDER;
 	outline_show(bx, by, bdx, bdy);
-	clearsnap(c);
 
 	for(;;){
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
@@ -1207,6 +1463,8 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			int ddy = ev.xmotion.y_root - cy;
 			int nx = ox, ny = oy;
 			int ndx = (int)odx, ndy = (int)ody;
+
+			clearsnap(c);
 
 			switch(bl){
 			case BorderN:
@@ -1277,12 +1535,12 @@ moveclient(Client *c, XButtonEvent *start)
 	bdx = c->dx + 2*BORDER; bdy = c->dy + 2*BORDER;
 	bx = ox - BORDER; by = oy - BORDER;
 	outline_show(bx, by, bdx, bdy);
-	clearsnap(c);
 
 	for(;;){
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
 			|PointerMotionMask, &ev);
 		if(ev.type == MotionNotify){
+			clearsnap(c);
 			bx = ox + (ev.xmotion.x_root - mx) - BORDER;
 			by = oy + (ev.xmotion.y_root - my) - BORDER;
 			outline_show(bx, by, bdx, bdy);
@@ -1339,10 +1597,14 @@ buttonpress(XButtonEvent *e)
 	else if(btn == Button1 && (e->state & Mod1Mask))
 		btn = Button2;
 
+	/* click elsewhere hides launcher */
+	if(launch_visible){
+		launcher_hide();
+		return;
+	}
+
 	if(e->window == barwin){
 		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
-			if(btn == Button1)
-				spawn(LAUNCHER);
 			return;
 		}
 		for(i = 0; i < NDESKS; i++){
@@ -1351,8 +1613,10 @@ buttonpress(XButtonEvent *e)
 					switch_to(i);
 				else if(btn == Button2){
 					if(current && i != curdesk){
-						current->virt = i;
-						XUnmapWindow(dpy, current->frame);
+						Client *tosend = current;
+						tosend->virt = i;
+						XUnmapWindow(dpy, tosend->frame);
+						deskfocus[i] = tosend;
 						focusnext();
 						bar_redraw();
 					}
@@ -1364,6 +1628,10 @@ buttonpress(XButtonEvent *e)
 		if(e->x >= bar_exit_x && e->x < bar_exit_x + bar_exit_w){
 			if(btn == Button1)
 				running = 0;
+			return;
+		}
+		if(e->x >= bar_status_x && e->x < bar_exit_x){
+			sweepnew(e);
 			return;
 		}
 		c = bar_hittest(e->x);
@@ -1456,9 +1724,15 @@ motionnotify(XMotionEvent *e)
 	int bl;
 
 	if(e->window == barwin){
-		c = bar_hittest(e->x);
-		if(c && c != current)
-			focus(c);
+		if(launch_visible)
+			return;
+		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
+			launcher_show();
+		} else {
+			c = bar_hittest(e->x);
+			if(c && c != current)
+				focus(c);
+		}
 		return;
 	}
 
@@ -1476,6 +1750,11 @@ static void
 keypress(XKeyEvent *e)
 {
 	KeySym ks;
+
+	if(launch_visible){
+		launcher_key(e);
+		return;
+	}
 
 	ks = XLookupKeysym(e, 0);
 	if(ks == XK_F11)
@@ -1622,6 +1901,8 @@ setup_bar(void)
 	bardraw = XftDrawCreate(dpy, barpix,
 		DefaultVisual(dpy, screen), DefaultColormap(dpy, screen));
 
+	scan_path();
+
 	XMapRaised(dpy, barwin);
 	initbattery();
 	readbattery();
@@ -1717,6 +1998,12 @@ cleanup(void)
 	if(barpix) XFreePixmap(dpy, barpix);
 	if(bargc) XFreeGC(dpy, bargc);
 	XDestroyWindow(dpy, barwin);
+
+	{
+		int i;
+		for(i = 0; i < launch_ncmds; i++)
+			free(launch_cmds[i]);
+	}
 
 	XDestroyWindow(dpy, swN);
 	XDestroyWindow(dpy, swS);

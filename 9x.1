@@ -15,6 +15,25 @@ Do 9 things and do them poorly.
 Erase computer. Weep.
 .El
 .Sh MOUSE
+.Ss Run Button
+.Bl -tag -width "Hover"
+.It Hover
+Open launcher (dmenu-style, scans $PATH).
+.El
+.Ss Launcher
+When active, replaces the bar. Type to filter, arrows/Tab to navigate.
+.Bl -tag -width "Backspace"
+.It Typing
+Filter commands.
+.It Left/Right/Tab
+Navigate selection.
+.It Return
+Launch selected command.
+.It Escape
+Close launcher.
+.It "Any Click"
+Close launcher.
+.El
 .Ss Window Tabs
 .Bl -tag -width "Button 1"
 .It Hover
@@ -35,6 +54,11 @@ Send window (stay).
 .It Button 3
 Send window (follow).
 .El
+.Ss Status Area (Battery/Clock)
+.Bl -tag -width "Any Button"
+.It "Any Button"
+Sweep new window.
+.El
 .Ss Window Borders
 .Bl -tag -width "Doubleclick"
 .It Button 1
@@ -45,6 +69,11 @@ Delete.
 Move.
 .It Doubleclick
 Tile to that side or corner.
+.El
+.Ss Root Window
+.Bl -tag -width "Any Button"
+.It "Any Button"
+Sweep new window (click to start, click to finish).
 .El
 .Sh KEYBOARD
 .Bl -tag -width "Fullscreen"

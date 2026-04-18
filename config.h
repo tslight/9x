@@ -17,7 +17,6 @@
 #define MOD         ControlMask
 #define XFTFONT     "monospace:size=9"
 #define TERM        "xterm"
-#define LAUNCHER    "dmenu_run -nb '#FFFFE0' -nf '#000000' -sb '#00AAAA' -sf '#FFFFFF'"
 #define NDESKS      4
 #define BAR_PAD     2
 #define BAR_BTN_PAD 4
