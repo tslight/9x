@@ -20,7 +20,6 @@
 
 #define BORDER      4
 #define CORNER      25
-#define MOD         ControlMask
 #define XFTFONT     "monospace:size=9"
 #define TERM        "xterm"
 #define NDESKS      4

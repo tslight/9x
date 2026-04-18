@@ -594,7 +594,8 @@ launcher_key(XKeyEvent *e)
 		return;
 	}
 
-	if(len == 1 && buf[0] >= ' ' && buf[0] < 127){
+	if(len == 1 && buf[0] >= ' ' && buf[0] < 127
+	&& launch_filterlen < (int)sizeof(launch_filter) - 1){
 		launch_filter[launch_filterlen++] = buf[0];
 		launch_filter[launch_filterlen] = '\0';
 		launcher_filter();
@@ -892,15 +893,16 @@ focus(Client *c)
 		setborder(current, 0);
 		grabbuttons(current, 0);
 	}
-	if(!c)
-		return;
-	setborder(c, 1);
-	grabbuttons(c, 1);
-	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
-	if(c->proto & Ptakefocus)
-		sendcmessage(c->win, wm_protocols, wm_take_focus);
-	XRaiseWindow(dpy, c->frame);
 	current = c;
+	if(c){
+		setborder(c, 1);
+		grabbuttons(c, 1);
+		XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
+		if(c->proto & Ptakefocus)
+			sendcmessage(c->win, wm_protocols, wm_take_focus);
+		XRaiseWindow(dpy, c->frame);
+	} else
+		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 	raisebar();
 	bar_redraw();
 }
@@ -950,14 +952,7 @@ switch_to(int n)
 	curdesk = n;
 	for(c = clients; c; c = c->next)
 		(c->virt == curdesk ? XMapWindow : XUnmapWindow)(dpy, c->frame);
-	current = deskfocus[curdesk];
-	if(current)
-		focus(current);
-	else {
-		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
-		raisebar();
-		bar_redraw();
-	}
+	focus(deskfocus[curdesk]);
 }
 
 static void
@@ -967,10 +962,8 @@ sendtodesktop(Client *c, int n)
 		return;
 	c->virt = n;
 	XUnmapWindow(dpy, c->frame);
-	if(current == c){
-		current = NULL;
+	if(current == c)
 		focusnext();
-	}
 	deskfocus[n] = c;
 	switch_to(n);
 }
@@ -980,15 +973,10 @@ focusnext(void)
 {
 	Client *c;
 
-	current = NULL;
 	for(c = clients; c; c = c->next)
-		if(c->virt == curdesk){
-			focus(c);
-			return;
-		}
-	XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
-	raisebar();
-	bar_redraw();
+		if(c->virt == curdesk)
+			break;
+	focus(c);
 }
 
 static Client *
@@ -1060,16 +1048,16 @@ manage(Window w)
 	XAddToSaveSet(dpy, w);
 	XReparentWindow(dpy, w, c->frame, BORDER, BORDER);
 	XResizeWindow(dpy, w, c->dx, c->dy);
+	XSetWindowBorderWidth(dpy, w, 0);
+	XSelectInput(dpy, w, PropertyChangeMask | StructureNotifyMask);
+	sendconfig(c);
 	XMapWindow(dpy, w);
 	XMapWindow(dpy, c->frame);
-	XSelectInput(dpy, w, PropertyChangeMask | StructureNotifyMask);
-	XSetWindowBorderWidth(dpy, w, 0);
 
 	c->next = clients;
 	clients = c;
 	setwmstate(c, NormalState);
 	focus(c);
-	sendconfig(c);
 	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
 		(int)c->dx / 2, (int)c->dy / 2);
 	return c;
@@ -1748,7 +1736,7 @@ grabkeys(void)
 	KeyCode f11 = XKeysymToKeycode(dpy, XK_F11);
 
 	for(i = 0; i < LENGTH(mods); i++)
-		XGrabKey(dpy, f11, MOD|mods[i], root, True, GrabModeAsync, GrabModeAsync);
+		XGrabKey(dpy, f11, mods[i], root, True, GrabModeAsync, GrabModeAsync);
 }
 
 static void
@@ -1880,6 +1868,20 @@ cleanup(void)
 	closebattery();
 	for(i = 0; i < launch_ncmds; i++)
 		free(launch_cmds[i]);
+
+	for(i = 0; i < 4; i++)
+		XDestroyWindow(dpy, swout[i]);
+	XftDrawDestroy(bardraw);
+	XFreePixmap(dpy, barpix);
+	XFreeGC(dpy, bargc);
+	XDestroyWindow(dpy, barwin);
+	XftFontClose(dpy, xftfont);
+	XFreeCursor(dpy, c_arrow);
+	XFreeCursor(dpy, c_sweep);
+	XFreeCursor(dpy, c_box);
+	for(i = BorderN; i < NBorder; i++)
+		if(c_border[i] && c_border[i] != c_border[i-1])
+			XFreeCursor(dpy, c_border[i]);
 
 	XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
 	XCloseDisplay(dpy);
