@@ -17,55 +17,66 @@ NAME
      9x more scum & rats than rio. Just say NEIN.
 
 DESCRIPTION
-     9x is a scummy X11 window manager. A rat infested rio rip-off.
-     It provides far more than you bargained for.
-     Do 9 things and do them poorly.
+     9x is a scummy X11 window manager. A rat infested rio rip-off.  It
+     provides far more than you bargained for.  Do 9 things and do them
+     poorly.
 
 OPTIONS
      -v  Erase computer. Weep.
 
 MOUSE
-   Desktop & Bar
-     Button 1  Window menu.
-     Button 2  Desktop menu.
-     Button 3  Sweep new terminal.
-     Scroll    Cycle desktops.
+   Run Button
+     Hover  Launcher.
 
-   Window Menu
-     Button 1  Focus.
-     Button 2  Delete.
+   Launcher
+     Button 1  Launch.
+
      Button 3  Sweep.
 
+   Window Tabs
+     Hover     Focus.
+
+     Button 1  Maximize.
+
+     Button 2  Delete.
+
+     Button 3  Re-Sweep.
+
+   Desktop Buttons
+     Button 1  Switch to Desktop.
+
+     Button 2  Window to Desktop.
+
+     Button 3  Follow Window to Desktop.
+
+   Status Area (Battery/Clock)
+     Any Button  Sweep.
+
    Window Borders
-     Button 1    Resize.
-     Button 2    Delete.
-     Button 3    Move.
-     Doubleclick Maximize.
+     Button 1     Resize.
+
+     Button 2     Delete.
+
+     Button 3     Move.
+
+     Doubleclick  Tile.
+
+   Root Window
+     Any Button  Sweep.
 
 KEYBOARD
-     MOD+Space         Broom cupboard.
-     MOD+Tab           Cycle windows.
-     MOD+Shift+Tab     Reverse cycle windows.
-     MOD+F4            Delete.
-     MOD+F10           Maximize.
-     MOD+F11           Fullscreen.
-     MOD+[1..9]        Desktop 1-9.
-     MOD+Shift+[1..9]  Window to desktop 1-9.
-
-LAUNCHER
-	 Button 1	Spawn.
-	 Button 3	Sweep.
-     Return     Spawn.
-	 MOD+Return Sweep.
-     Tab        Complete.
-     Backspace  Delete.
-     Down       Next.
-     Up         Previous.
-     Escape     Cancel.
+     F11  Fullscreen.
 
 CUSTOMIZATION
      Read the goddamn src(1) you filthy heathen.
 
+SEE ALSO
+     X(7), xterm(1)
+
+AUTHORS
+     Toby Slight
+
 BUGS
      Programs that depend on EWMH/ICCCM may shit the bed.
+
      Cursed cursors & Caerbannog bunnies lurking in dark corners...

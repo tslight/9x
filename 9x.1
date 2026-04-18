@@ -15,24 +15,41 @@ Do 9 things and do them poorly.
 Erase computer. Weep.
 .El
 .Sh MOUSE
-.Ss Desktop & Bar
-.Bl -tag -width "Button 1"
-.It Button 1
-Window menu.
-.It Button 2
-Desktop menu.
-.It Button 3
-Sweep new terminal.
-.It Scroll
-Cycle desktops.
+.Ss Run Button
+.Bl -tag -width "Hover"
+.It Hover
+Launcher.
 .El
-.Ss Window Menu
+.Ss Launcher
 .Bl -tag -width "Button 3"
 .It Button 1
+Launch.
+.It Button 3
+Sweep.
+.El
+.Ss Window Tabs
+.Bl -tag -width "Button 1"
+.It Hover
 Focus.
+.It Button 1
+Maximize.
 .It Button 2
 Delete.
 .It Button 3
+Re-Sweep.
+.El
+.Ss Desktop Buttons
+.Bl -tag -width "Button 3"
+.It Button 1
+Switch to Desktop.
+.It Button 2
+Window to Desktop.
+.It Button 3
+Follow Window to Desktop.
+.El
+.Ss Status Area (Battery/Clock)
+.Bl -tag -width "Any Button"
+.It "Any Button"
 Sweep.
 .El
 .Ss Window Borders
@@ -44,47 +61,17 @@ Delete.
 .It Button 3
 Move.
 .It Doubleclick
-Maximize.
+Tile.
+.El
+.Ss Root Window
+.Bl -tag -width "Any Button"
+.It "Any Button"
+Sweep.
 .El
 .Sh KEYBOARD
-.Bl -tag -width "MOD+Shift+[1..0]"
-.It MOD+Space
-Broom cupboard.
-.It MOD+Tab
-Cycle windows.
-.It MOD+Shift+Tab
-Reverse cycle windows.
-.It MOD+F4
-Delete.
-.It MOD+F10
-Maximize.
-.It MOD+F11
+.Bl -tag -width "F11"
+.It F11
 Fullscreen.
-.It MOD+[1..9]
-Desktop 1\(en9.
-.It MOD+Shift+[1..9]
-Window to desktop 1\(en9.
-.El
-.Sh LAUNCHER
-.Bl -tag -width "MOD+Return"
-.It Button 1
-Spawn.
-.It Button 3
-Sweep.
-.It Return
-Spawn.
-.It MOD+Return
-Sweep.
-.It Tab
-Complete.
-.It Backspace
-Delete.
-.It Down
-Next.
-.It Up
-Previous.
-.It Escape
-Cancel.
 .El
 .Sh CUSTOMIZATION
 Read the goddamn src(1) you filthy heathen.
