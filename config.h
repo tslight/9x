@@ -25,4 +25,3 @@
 #define BAR_REFRESH 60
 #define TIMEFMT     "%H:%M %a %d/%m"
 #define DBLCLICK_MS 500
-#define MAXNAMESIZE 50

@@ -1,0 +1,52 @@
+      __
+     (  \
+ __   \  '\
+(  "-_ \ .-'----._
+ '-_  "v"         "-
+    "Y'             ".
+     |                |
+     |        o     o |
+     |          .<>.  |
+      \         "Ll"  |
+       |             .'
+       |             |
+       (             /
+      /'\         . \
+      "--^--.__,\_)-'
+NAME
+     9x more scum & rats than rio. Just say NEIN.
+
+DESCRIPTION
+     9x is a scummy X11 window manager. A rat infested rio rip-off.
+     It provides far more than you bargained for.
+     Do 9 things and do them poorly.
+
+OPTIONS
+     -v  Erase computer. Weep.
+
+MOUSE
+   Window Tabs
+     Hover       Focus.
+     Button 1    Maximize.
+     Button 2    Delete.
+     Button 3    Re-Sweep.
+
+   Desktop Buttons
+     Button 1    Switch.
+     Button 3    Send window.
+
+   Window Borders
+     Button 1     Resize.
+     Button 2     Delete.
+     Button 3     Move.
+     Doubleclick  Tile to that side.
+
+KEYBOARD
+     MOD+F11 Fullscreen.
+
+CUSTOMIZATION
+     Read the goddamn src(1) you filthy heathen.
+
+BUGS
+     Programs that depend on EWMH/ICCCM may shit the bed.
+     Cursed cursors & Caerbannog bunnies lurking in dark corners...

@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -91,6 +90,8 @@ enum {
 	NBorder
 };
 
+enum { TileNone = 0, TileN, TileS, TileE, TileW, TileNW, TileNE, TileSW, TileSE, TileMax };
+
 typedef struct Client Client;
 struct Client {
 	Window  win;
@@ -99,7 +100,8 @@ struct Client {
 	unsigned int dx, dy;
 	unsigned int odx, ody;
 	int     ox, oy;
-	int     maximized;
+	int     tiled;
+	int     prev_tiled;
 	int     fullscreen;
 	int     proto;
 	int     reparenting;
@@ -133,8 +135,6 @@ static unsigned int  sweep_dx, sweep_dy;
 
 static Time          last_click_time;
 static Window        last_click_win;
-static Time          last_tab_time;
-static Client       *last_tab_client;
 
 static int           curdesk;
 static Client       *deskfocus[NDESKS];
@@ -158,10 +158,7 @@ static int           bar_ntabs;
 
 static int           bar_run_x, bar_run_w;
 static int           bar_desk_x[NDESKS], bar_desk_w;
-static int           bar_status_x, bar_status_w;
 static int           bar_exit_x, bar_exit_w;
-
-static pid_t         launcher_pid;
 
 static void
 raisebar(void)
@@ -336,17 +333,89 @@ bar_drawbtn(int x, int w, const char *s, int len, int sel, XftColor *bg)
 }
 
 static void
+bar_drawtabs(int x, int tabarea, int rightw)
+{
+	Client *c;
+	const char *name;
+	char trunc[256];
+	int i, j, tw, tabx, nlen, drawn, ty;
+
+	bar_ntabs = 0;
+	for(c = clients; c && bar_ntabs < MAXCLIENTS; c = c->next)
+		if(c->virt == curdesk)
+			bar_tabs[bar_ntabs++] = c;
+
+	/* sort by window id for stable order */
+	for(i = 0; i < bar_ntabs - 1; i++){
+		int min = i;
+		for(j = i + 1; j < bar_ntabs; j++)
+			if(bar_tabs[j]->win < bar_tabs[min]->win)
+				min = j;
+		if(min != i){
+			Client *tmp = bar_tabs[i];
+			bar_tabs[i] = bar_tabs[min];
+			bar_tabs[min] = tmp;
+		}
+	}
+
+	if(bar_ntabs <= 0 || tabarea <= 0)
+		return;
+
+	ty = BAR_PAD + xftfont->ascent;
+	drawn = 0;
+	tw = (tabarea - (bar_ntabs - 1) * BAR_GAP) / bar_ntabs;
+	if(tw < 30) tw = 30;
+	tabx = x;
+
+	for(i = 0; i < bar_ntabs && tabx < (int)barw - rightw; i++){
+		c = bar_tabs[i];
+		name = c->label ? c->label : "(unnamed)";
+		nlen = (int)strlen(name);
+
+		int maxw = tw - 2 * BAR_BTN_PAD;
+		if(xft_textwidth(name, nlen) > maxw){
+			while(nlen > 0 && xft_textwidth(name, nlen) + xft_textwidth("..", 2) > maxw)
+				nlen--;
+			memcpy(trunc, name, (size_t)nlen);
+			trunc[nlen] = '.';
+			trunc[nlen+1] = '.';
+			trunc[nlen+2] = '\0';
+			name = trunc;
+			nlen += 2;
+		}
+
+		bar_tab_x[drawn] = tabx;
+		bar_tab_w[drawn] = tw;
+		bar_tabs[drawn] = c;
+		drawn++;
+
+		if(c == current){
+			XftDrawRect(bardraw, &bar_sel,
+				tabx, 0, (unsigned int)tw, barh);
+			XftDrawStringUtf8(bardraw, &bar_self, xftfont,
+				tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
+		} else {
+			XftDrawRect(bardraw, &bar_tab,
+				tabx, 0, (unsigned int)tw, barh);
+			XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
+				tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
+		}
+		XSetForeground(dpy, bargc, col_bar_bd);
+		XDrawRectangle(dpy, barpix, bargc, tabx, 0,
+			(unsigned int)tw - 1, barh - 1);
+		tabx += tw + BAR_GAP;
+	}
+	bar_ntabs = drawn;
+}
+
+static void
 bar_redraw(void)
 {
 	time_t now;
 	struct tm *t;
 	char tbuf[64], bbuf[32];
 	int x, blen, tlen;
-	int rightw, tabarea, tabx, i;
-	Client *c;
-	const char *name;
-	char trunc[MAXNAMESIZE + 4];
-	int tw, nlen;
+	int rightw, tabarea, statusw, i;
 
 	now = time(NULL);
 	t = localtime(&now);
@@ -378,69 +447,11 @@ bar_redraw(void)
 	/* Right side: Desktops, Battery, Clock, Exit */
 	bar_desk_w = xft_textwidth("0", 1) + 2 * BAR_BTN_PAD;
 	bar_exit_w = xft_textwidth("Exit", 4) + 2 * BAR_BTN_PAD;
-	bar_status_w = xft_textwidth(bbuf, blen) + xft_textwidth(tbuf, tlen) + BAR_GAP * 2;
-	rightw = (bar_desk_w + BAR_GAP) * NDESKS + bar_status_w + bar_exit_w + BAR_PAD;
+	statusw = xft_textwidth(bbuf, blen) + xft_textwidth(tbuf, tlen) + BAR_GAP * 2;
+	rightw = (bar_desk_w + BAR_GAP) * NDESKS + statusw + bar_exit_w + BAR_PAD;
 	tabarea = (int)barw - x - rightw;
 
-	bar_ntabs = 0;
-	for(c = clients; c && bar_ntabs < MAXCLIENTS; c = c->next)
-		if(c->virt == curdesk)
-			bar_tabs[bar_ntabs++] = c;
-
-	/* sort by window id for stable order */
-	for(i = 0; i < bar_ntabs - 1; i++){
-		int j, min = i;
-		for(j = i + 1; j < bar_ntabs; j++)
-			if(bar_tabs[j]->win < bar_tabs[min]->win)
-				min = j;
-		if(min != i){
-			Client *tmp = bar_tabs[i];
-			bar_tabs[i] = bar_tabs[min];
-			bar_tabs[min] = tmp;
-		}
-	}
-
-	/* Window tabs */
-	if(bar_ntabs > 0 && tabarea > 0){
-		int ty = BAR_PAD + xftfont->ascent;
-		tw = (tabarea - (bar_ntabs - 1) * BAR_GAP) / bar_ntabs;
-		if(tw < 30) tw = 30;
-		tabx = x;
-		for(i = 0; i < bar_ntabs && tabx < (int)barw - rightw; i++){
-			c = bar_tabs[i];
-			name = c->label ? c->label : "(unnamed)";
-			nlen = (int)strlen(name);
-			if(nlen > MAXNAMESIZE){
-				memcpy(trunc, name, MAXNAMESIZE);
-				trunc[MAXNAMESIZE] = '.';
-				trunc[MAXNAMESIZE+1] = '.';
-				trunc[MAXNAMESIZE+2] = '\0';
-				name = trunc;
-				nlen = MAXNAMESIZE + 2;
-			}
-
-			bar_tab_x[i] = tabx;
-			bar_tab_w[i] = tw;
-
-			/* draw tab background */
-			if(c == current){
-				XftDrawRect(bardraw, &bar_sel,
-					tabx, 0, (unsigned int)tw, barh);
-				XftDrawStringUtf8(bardraw, &bar_self, xftfont,
-					tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-			} else {
-				XftDrawRect(bardraw, &bar_tab,
-					tabx, 0, (unsigned int)tw, barh);
-				XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
-					tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-			}
-			/* draw tab border */
-			XSetForeground(dpy, bargc, col_bar_bd);
-			XDrawRectangle(dpy, barpix, bargc, tabx, 0,
-				(unsigned int)tw - 1, barh - 1);
-			tabx += tw + BAR_GAP;
-		}
-	}
+	bar_drawtabs(x, tabarea, rightw);
 
 	/* Desktop buttons */
 	x = (int)barw - rightw + BAR_PAD;
@@ -454,7 +465,6 @@ bar_redraw(void)
 	}
 
 	/* Battery & Clock */
-	bar_status_x = x;
 	if(bbuf[0]){
 		XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, BAR_PAD + xftfont->ascent,
 			(const FcChar8 *)bbuf, blen);
@@ -652,6 +662,7 @@ focus(Client *c)
 	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
 	if(c->proto & Ptakefocus)
 		sendcmessage(c->win, wm_protocols, wm_take_focus);
+	XClearArea(dpy, c->win, 0, 0, 0, 0, True);
 	XRaiseWindow(dpy, c->frame);
 	current = c;
 	raisebar();
@@ -713,6 +724,21 @@ switch_to(int n)
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 	raisebar();
 	bar_redraw();
+}
+
+static void
+sendtodesktop(Client *c, int n)
+{
+	if(!c || n < 0 || n >= NDESKS || n == curdesk)
+		return;
+	c->virt = n;
+	XUnmapWindow(dpy, c->frame);
+	if(current == c){
+		current = NULL;
+		focusnext();
+	}
+	deskfocus[n] = c;
+	switch_to(n);
 }
 
 static void
@@ -833,8 +859,6 @@ unmanage(Client *c)
 	for(i = 0; i < NDESKS; i++)
 		if(deskfocus[i] == c)
 			deskfocus[i] = NULL;
-	if(last_tab_client == c)
-		last_tab_client = NULL;
 	if(current == c)
 		focusnext();
 	raisebar();
@@ -856,26 +880,99 @@ closeclient(Client *c)
 }
 
 static void
-snap(Client *c, int nx, int ny, unsigned int ndx, unsigned int ndy)
+clearsnap(Client *c)
 {
+	c->tiled = TileNone;
+	c->prev_tiled = TileNone;
+	c->fullscreen = 0;
+}
+
+static void
+tilegeom(int dir, int *nx, int *ny, unsigned int *ndx, unsigned int *ndy)
+{
+	*nx = BORDER;
+	*ny = (int)barh + BORDER;
+	*ndx = sw - 2 * BORDER;
+	*ndy = sh - barh - 2 * BORDER;
+
+	switch(dir){
+	case TileN:
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileS:
+		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileW:
+		*ndx = sw / 2 - 2 * BORDER;
+		break;
+	case TileE:
+		*nx = (int)sw / 2 + BORDER;
+		*ndx = sw / 2 - 2 * BORDER;
+		break;
+	case TileNW:
+		*ndx = sw / 2 - 2 * BORDER;
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileNE:
+		*nx = (int)sw / 2 + BORDER;
+		*ndx = sw / 2 - 2 * BORDER;
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileSW:
+		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
+		*ndx = sw / 2 - 2 * BORDER;
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileSE:
+		*nx = (int)sw / 2 + BORDER;
+		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
+		*ndx = sw / 2 - 2 * BORDER;
+		*ndy = (sh - barh) / 2 - 2 * BORDER;
+		break;
+	case TileMax:
+		break;
+	}
+}
+
+static void
+tile(Client *c, int dir)
+{
+	int nx, ny;
+	unsigned int ndx, ndy;
+
 	if(!c || c->fullscreen)
 		return;
-	if(c->maximized){
-		c->x = c->ox;
-		c->y = c->oy;
-		c->dx = c->odx;
-		c->dy = c->ody;
-		c->maximized = 0;
+	if(c->tiled == dir){
+		if(c->prev_tiled){
+			tilegeom(c->prev_tiled, &nx, &ny, &ndx, &ndy);
+			c->x = nx;
+			c->y = ny;
+			c->dx = ndx;
+			c->dy = ndy;
+			c->tiled = c->prev_tiled;
+		} else {
+			c->x = c->ox;
+			c->y = c->oy;
+			c->dx = c->odx;
+			c->dy = c->ody;
+			c->tiled = TileNone;
+		}
+		c->prev_tiled = TileNone;
 	} else {
-		c->ox = c->x;
-		c->oy = c->y;
-		c->odx = c->dx;
-		c->ody = c->dy;
+		if(!c->tiled){
+			c->ox = c->x;
+			c->oy = c->y;
+			c->odx = c->dx;
+			c->ody = c->dy;
+		}
+		c->prev_tiled = c->tiled;
+		tilegeom(dir, &nx, &ny, &ndx, &ndy);
 		c->x = nx;
 		c->y = ny;
 		c->dx = ndx;
 		c->dy = ndy;
-		c->maximized = 1;
+		c->tiled = dir;
 	}
 	applylayout(c);
 	sendconfig(c);
@@ -885,28 +982,25 @@ snap(Client *c, int nx, int ny, unsigned int ndx, unsigned int ndy)
 static void
 maximize(Client *c)
 {
-	snap(c, BORDER, (int)barh + BORDER, sw - 2 * BORDER, sh - barh - 2 * BORDER);
-}
-
-static void
-tile(Client *c, int side)
-{
-	int x = side < 0 ? BORDER : (int)sw / 2 + BORDER;
-	snap(c, x, (int)barh + BORDER, sw / 2 - 2 * BORDER, sh - barh - 2 * BORDER);
+	tile(c, TileMax);
 }
 
 static void
 fullscreen(Client *c)
 {
+	int nx, ny;
+	unsigned int ndx, ndy;
+
 	if(!c)
 		return;
 	if(c->fullscreen){
 		c->fullscreen = 0;
-		if(c->maximized){
-			c->x = BORDER;
-			c->y = (int)barh + BORDER;
-			c->dx = sw - 2 * BORDER;
-			c->dy = sh - barh - 2 * BORDER;
+		if(c->tiled){
+			tilegeom(c->tiled, &nx, &ny, &ndx, &ndy);
+			c->x = nx;
+			c->y = ny;
+			c->dx = ndx;
+			c->dy = ndy;
 		} else {
 			c->x = c->ox;
 			c->y = c->oy;
@@ -917,7 +1011,7 @@ fullscreen(Client *c)
 		sendconfig(c);
 		raisebar();
 	} else {
-		if(!c->maximized){
+		if(!c->tiled){
 			c->ox = c->x;
 			c->oy = c->y;
 			c->odx = c->dx;
@@ -1075,8 +1169,7 @@ reshapeclient(Client *c)
 	c->y = by + BORDER;
 	c->dx = bdx - 2 * BORDER;
 	c->dy = bdy - 2 * BORDER;
-	c->maximized = 0;
-	c->fullscreen = 0;
+	clearsnap(c);
 	applylayout(c);
 	sendconfig(c);
 	raisebar();
@@ -1104,6 +1197,7 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 	bx = ox - BORDER; by = oy - BORDER;
 	bdx = odx + 2*BORDER; bdy = ody + 2*BORDER;
 	outline_show(bx, by, bdx, bdy);
+	clearsnap(c);
 
 	for(;;){
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
@@ -1143,8 +1237,6 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			bx = nx - BORDER; by = ny - BORDER;
 			bdx = (unsigned int)ndx + 2*BORDER;
 			bdy = (unsigned int)ndy + 2*BORDER;
-			c->maximized = 0;
-			c->fullscreen = 0;
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonPress){
@@ -1185,6 +1277,7 @@ moveclient(Client *c, XButtonEvent *start)
 	bdx = c->dx + 2*BORDER; bdy = c->dy + 2*BORDER;
 	bx = ox - BORDER; by = oy - BORDER;
 	outline_show(bx, by, bdx, bdy);
+	clearsnap(c);
 
 	for(;;){
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
@@ -1198,8 +1291,6 @@ moveclient(Client *c, XButtonEvent *start)
 			outline_hide();
 			c->x = bx + BORDER;
 			c->y = by + BORDER;
-			c->maximized = 0;
-			c->fullscreen = 0;
 			XMoveWindow(dpy, c->frame, bx, by);
 			sendconfig(c);
 			raisebar();
@@ -1223,33 +1314,6 @@ sweepnew(XButtonEvent *start)
 		return;
 	setsweep(bx, by, bdx, bdy);
 	spawn(TERM);
-}
-
-static void
-launch(void)
-{
-	pid_t p;
-
-	p = fork();
-	if(p < 0)
-		return;
-	if(p == 0){
-		setsid();
-		close(ConnectionNumber(dpy));
-		execl("/bin/sh", "sh", "-c", LAUNCHER, (char *)NULL);
-		_exit(1);
-	}
-	launcher_pid = p;
-}
-
-static void
-killlauncher(void)
-{
-	if(launcher_pid > 0){
-		kill(launcher_pid, SIGTERM);
-		waitpid(launcher_pid, NULL, WNOHANG);
-		launcher_pid = 0;
-	}
 }
 
 static Client *
@@ -1276,16 +1340,24 @@ buttonpress(XButtonEvent *e)
 		btn = Button2;
 
 	if(e->window == barwin){
-		killlauncher();
 		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
 			if(btn == Button1)
-				launch();
+				spawn(LAUNCHER);
 			return;
 		}
 		for(i = 0; i < NDESKS; i++){
 			if(e->x >= bar_desk_x[i] && e->x < bar_desk_x[i] + bar_desk_w){
 				if(btn == Button1)
 					switch_to(i);
+				else if(btn == Button2){
+					if(current && i != curdesk){
+						current->virt = i;
+						XUnmapWindow(dpy, current->frame);
+						focusnext();
+						bar_redraw();
+					}
+				} else if(btn == Button3)
+					sendtodesktop(current, i);
 				return;
 			}
 		}
@@ -1298,16 +1370,7 @@ buttonpress(XButtonEvent *e)
 		if(c){
 			switch(btn){
 			case Button1:
-				if(c == last_tab_client
-				&& e->time - last_tab_time < DBLCLICK_MS){
-					last_tab_time = 0;
-					last_tab_client = NULL;
-					maximize(c);
-				} else {
-					last_tab_time = e->time;
-					last_tab_client = c;
-					focus(c);
-				}
+				maximize(c);
 				break;
 			case Button2:
 				closeclient(c);
@@ -1340,27 +1403,33 @@ buttonpress(XButtonEvent *e)
 	bl = borderorient(c, e->x, e->y);
 	if(bl != BorderUnknown){
 		if(btn == Button1){
-			/* double-click: top=maximize, sides=tile */
+			/* double-click: tile to that side/corner */
 			if(e->window == last_click_win
 			&& e->time - last_click_time < DBLCLICK_MS){
 				int px = e->x_root;
 				int py = e->y_root;
 				int old_fx = c->x - BORDER;
 				int old_fy = c->y - BORDER;
+				int dir;
 				last_click_time = 0;
 				last_click_win = None;
-				if(bl == BorderN || bl == BorderNNW || bl == BorderNNE)
-					maximize(c);
-				else if(bl == BorderW || bl == BorderWNW || bl == BorderWSW)
-					tile(c, -1);
-				else if(bl == BorderE || bl == BorderENE || bl == BorderESE)
-					tile(c, 1);
-				else {
-					last_click_time = e->time;
-					last_click_win = e->window;
-					pullclient(c, bl, e);
-					return;
-				}
+				if(bl == BorderNNW || bl == BorderWNW)
+					dir = TileNW;
+				else if(bl == BorderNNE || bl == BorderENE)
+					dir = TileNE;
+				else if(bl == BorderSSW || bl == BorderWSW)
+					dir = TileSW;
+				else if(bl == BorderSSE || bl == BorderESE)
+					dir = TileSE;
+				else if(bl == BorderN)
+					dir = TileN;
+				else if(bl == BorderS)
+					dir = TileS;
+				else if(bl == BorderW)
+					dir = TileW;
+				else
+					dir = TileE;
+				tile(c, dir);
 				XWarpPointer(dpy, None, root, 0, 0, 0, 0,
 					px - old_fx + (c->x - BORDER),
 					py - old_fy + (c->y - BORDER));
@@ -1385,6 +1454,13 @@ motionnotify(XMotionEvent *e)
 {
 	Client *c;
 	int bl;
+
+	if(e->window == barwin){
+		c = bar_hittest(e->x);
+		if(c && c != current)
+			focus(c);
+		return;
+	}
 
 	c = frameclient(e->window);
 	if(!c)
@@ -1414,7 +1490,7 @@ configreq(XConfigureRequestEvent *e)
 
 	c = winclient(e->window);
 	if(c){
-		if(c->fullscreen || c->maximized){
+		if(c->fullscreen || c->tiled){
 			sendconfig(c);
 			return;
 		}
@@ -1533,7 +1609,7 @@ setup_bar(void)
 
 	wa.override_redirect = True;
 	wa.background_pixel = bar_bg.pixel;
-	wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask;
+	wa.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask;
 	barwin = XCreateWindow(dpy, root,
 		0, 0, barw, barh, 0,
 		DefaultDepth(dpy, screen),
@@ -1647,22 +1723,16 @@ cleanup(void)
 	XDestroyWindow(dpy, swE);
 	XDestroyWindow(dpy, swW);
 
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_fg);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_bg);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_sel);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_self);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_tab);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_run);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_exit);
-	XftColorFree(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &bar_desk);
+	{
+		XftColor *cols[] = {
+			&bar_fg, &bar_bg, &bar_sel, &bar_self,
+			&bar_tab, &bar_run, &bar_exit, &bar_desk
+		};
+		size_t i;
+		for(i = 0; i < LENGTH(cols); i++)
+			XftColorFree(dpy, DefaultVisual(dpy, screen),
+				DefaultColormap(dpy, screen), cols[i]);
+	}
 	if(xftfont) XftFontClose(dpy, xftfont);
 
 	XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
