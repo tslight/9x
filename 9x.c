@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -36,7 +37,7 @@
 #include "config.h"
 
 #define MAXCLIENTS  512
-#define MAXCMDS     2048
+#define MAXCMDS     4096
 #define MINSIZE     20
 
 #define LENGTH(x)   (sizeof(x) / sizeof((x)[0]))
@@ -156,7 +157,7 @@ static Pixmap        barpix;
 static GC            bargc;
 static XftDraw      *bardraw;
 static XftColor      bar_fg, bar_bg, bar_sel, bar_self, bar_tab;
-static XftColor      bar_run, bar_exit, bar_desk[NDESKS];
+static XftColor      bar_run, bar_exit, bar_desk;
 static unsigned long col_bar_bd;
 static unsigned int  barw, barh;
 static int           bar_batt = -1;
@@ -370,6 +371,7 @@ scan_path(void)
 	char *path, *p, *dir, fullpath[PATH_MAX];
 	DIR *d;
 	struct dirent *ent;
+	struct stat st;
 	int i, j;
 
 	path = getenv("PATH");
@@ -394,7 +396,11 @@ scan_path(void)
 			if(launch_ncmds >= MAXCMDS)
 				break;
 			snprintf(fullpath, sizeof fullpath, "%s/%s", dir, ent->d_name);
-			if(access(fullpath, X_OK) != 0)
+			if(stat(fullpath, &st) != 0)
+				continue;
+			if(!S_ISREG(st.st_mode))
+				continue;
+			if(!(st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
 				continue;
 			launch_cmds[launch_ncmds] = strdup(ent->d_name);
 			if(launch_cmds[launch_ncmds])
@@ -439,15 +445,15 @@ launcher_draw(void)
 	ty = BAR_PAD + xftfont->ascent;
 	x = BAR_GAP;
 
-	XftDrawRect(bardraw, &bar_tab, x, 0, 200, barh);
+	XftDrawRect(bardraw, &bar_tab, x, 0, LAUNCH_FILTER_W, barh);
 	XSetForeground(dpy, bargc, col_bar_bd);
-	XDrawRectangle(dpy, barpix, bargc, x, 0, 199, barh - 1);
+	XDrawRectangle(dpy, barpix, bargc, x, 0, LAUNCH_FILTER_W - 1, barh - 1);
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
 		x + BAR_BTN_PAD, ty, (const FcChar8 *)launch_filter, launch_filterlen);
 	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)launch_filter, launch_filterlen, &ext);
 	XSetForeground(dpy, bargc, bar_fg.pixel);
 	XFillRectangle(dpy, barpix, bargc, x + BAR_BTN_PAD + ext.xOff, BAR_PAD, 2, barh - 2*BAR_PAD);
-	x += 200 + BAR_GAP;
+	x += LAUNCH_FILTER_W + BAR_GAP;
 
 	maxw = (int)sw - x - BAR_GAP;
 	launch_nitems = 0;
@@ -722,7 +728,7 @@ bar_redraw(void)
 		dbuf[0] = (char)('1' + i);
 		dbuf[1] = '\0';
 		bar_desk_x[i] = x;
-		bar_drawbtn(x, bar_desk_w, dbuf, 1, i == curdesk, &bar_desk[i]);
+		bar_drawbtn(x, bar_desk_w, dbuf, 1, i == curdesk, &bar_desk);
 		x += bar_desk_w + BAR_GAP;
 	}
 
@@ -975,7 +981,7 @@ sendtodesktop(Client *c, int n)
 	if(current == c)
 		focusnext();
 	deskfocus[n] = c;
-	bar_redraw();
+	switch_to(n);
 }
 
 static void
@@ -1229,7 +1235,7 @@ outline_show(int x, int y, unsigned int w, unsigned int h)
 	XMoveResizeWindow(dpy, swout[1], x, y+(int)h-BORDER, MAX(w, 1), BORDER);
 	XMoveResizeWindow(dpy, swout[2], x, y, BORDER, MAX(h, 1));
 	XMoveResizeWindow(dpy, swout[3], x+(int)w-BORDER, y, BORDER, MAX(h, 1));
-	for(i = 0; i < 4; i++)
+	for(i = 0; i < (int)LENGTH(swout); i++)
 		XMapRaised(dpy, swout[i]);
 }
 
@@ -1237,7 +1243,7 @@ static void
 outline_hide(void)
 {
 	int i;
-	for(i = 0; i < 4; i++)
+	for(i = 0; i < (int)LENGTH(swout); i++)
 		XUnmapWindow(dpy, swout[i]);
 }
 
@@ -1525,7 +1531,7 @@ buttonpress(XButtonEvent *e)
 				spawn(cmd);
 				return;
 			}
-			if(e->x < 200 + BAR_GAP + BAR_GAP)
+			if(e->x < LAUNCH_FILTER_W + BAR_GAP + BAR_GAP)
 				return;
 		}
 		launcher_hide();
@@ -1572,6 +1578,7 @@ buttonpress(XButtonEvent *e)
 			}
 			return;
 		}
+		sweepnew();
 		return;
 	}
 
@@ -1766,10 +1773,7 @@ setup_bar(void)
 	bar_tab = getxftcolor(COL_BAR_TAB);
 	bar_run = getxftcolor(COL_BAR_RUN);
 	bar_exit = getxftcolor(COL_BAR_EXIT);
-	bar_desk[0] = getxftcolor(COL_BAR_DESK0);
-	bar_desk[1] = getxftcolor(COL_BAR_DESK1);
-	bar_desk[2] = getxftcolor(COL_BAR_DESK2);
-	bar_desk[3] = getxftcolor(COL_BAR_DESK3);
+	bar_desk = getxftcolor(COL_BAR_DESK);
 	col_bar_bd = getcolor(COL_BAR_BD);
 
 	barw = sw;
@@ -1847,7 +1851,7 @@ setup(void)
 	c_border[BorderWNW] = XCreateFontCursor(dpy, XC_top_left_corner);
 	c_border[BorderNNW] = c_border[BorderWNW];
 
-	for(i = 0; i < 4; i++)
+	for(i = 0; i < (int)LENGTH(swout); i++)
 		swout[i] = make_outline_bar();
 
 	wa.cursor = c_arrow;
@@ -1884,7 +1888,7 @@ cleanup(void)
 	for(i = 0; i < launch_ncmds; i++)
 		free(launch_cmds[i]);
 
-	for(i = 0; i < 4; i++)
+	for(i = 0; i < (int)LENGTH(swout); i++)
 		XDestroyWindow(dpy, swout[i]);
 	XftDrawDestroy(bardraw);
 	XFreePixmap(dpy, barpix);
