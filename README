@@ -25,43 +25,21 @@ OPTIONS
      -v  Erase computer. Weep.
 
 MOUSE
-   Desktop & Bar
-     Button 1  Window menu.
-     Button 2  Desktop menu.
-     Button 3  Sweep new terminal.
-     Scroll    Cycle desktops.
-
-   Window Menu
-     Button 1  Focus.
-     Button 2  Delete.
-     Button 3  Sweep.
-
-   Window Borders
-     Button 1    Resize.
+   Window Tabs
+     Button 1    Focus.
      Button 2    Delete.
-     Button 3    Move.
+     Button 3    Re-Sweep.
      Doubleclick Maximize.
 
-KEYBOARD
-     MOD+Space         Broom cupboard.
-     MOD+Tab           Cycle windows.
-     MOD+Shift+Tab     Reverse cycle windows.
-     MOD+F4            Delete.
-     MOD+F10           Maximize.
-     MOD+F11           Fullscreen.
-     MOD+[1..9]        Desktop 1-9.
-     MOD+Shift+[1..9]  Window to desktop 1-9.
+   Window Borders
+     Button 1         Resize.
+     Button 2         Delete.
+     Button 3         Move.
+     Doubleclick Top  Maximize.
+     Doubleclick Side Tile to side.
 
-LAUNCHER
-	 Button 1	Spawn.
-	 Button 3	Sweep.
-     Return     Spawn.
-	 MOD+Return Sweep.
-     Tab        Complete.
-     Backspace  Delete.
-     Down       Next.
-     Up         Previous.
-     Escape     Cancel.
+KEYBOARD
+     MOD+F11 Fullscreen.
 
 CUSTOMIZATION
      Read the goddamn src(1) you filthy heathen.
