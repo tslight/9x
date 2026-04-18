@@ -429,7 +429,7 @@ launcher_draw(void)
 
 	maxw = (int)sw - x - BAR_GAP;
 	launch_nitems = 0;
-	for(i = launch_scroll; i < launch_nfiltered && x < (int)sw - BAR_GAP; i++){
+	for(i = launch_scroll; i < launch_nfiltered && x < (int)sw - BAR_GAP && launch_nitems < MAXCMDS; i++){
 		int idx = launch_filtered[i];
 		name = launch_cmds[idx];
 		nlen = (int)strlen(name);
@@ -515,6 +515,13 @@ launcher_show(void)
 	launcher_filter();
 	if(XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
 		return;
+	if(XGrabPointer(dpy, root, True,
+		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
+		GrabModeAsync, GrabModeAsync, None, None,
+		CurrentTime) != GrabSuccess){
+		XUngrabKeyboard(dpy, CurrentTime);
+		return;
+	}
 	launch_visible = 1;
 	launcher_draw();
 }
@@ -524,6 +531,7 @@ launcher_hide(void)
 {
 	if(!launch_visible)
 		return;
+	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	launch_visible = 0;
 	bar_redraw();
@@ -570,6 +578,8 @@ launcher_key(XKeyEvent *e)
 	if(ks == XK_Right || ks == XK_Down){
 		if(launch_sel < launch_nfiltered - 1){
 			launch_sel++;
+			if(launch_sel >= launch_scroll + launch_nitems && launch_nitems > 0)
+				launch_scroll = launch_sel - launch_nitems + 1;
 			launcher_draw();
 		}
 		return;
@@ -582,8 +592,11 @@ launcher_key(XKeyEvent *e)
 					launch_scroll = launch_sel;
 			}
 		} else {
-			if(launch_sel < launch_nfiltered - 1)
+			if(launch_sel < launch_nfiltered - 1){
 				launch_sel++;
+				if(launch_sel >= launch_scroll + launch_nitems && launch_nitems > 0)
+					launch_scroll = launch_sel - launch_nitems + 1;
+			}
 		}
 		launcher_draw();
 		return;
