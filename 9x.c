@@ -147,7 +147,7 @@ static Pixmap        barpix;
 static GC            bargc;
 static XftDraw      *bardraw;
 static XftColor      bar_fg, bar_bg, bar_sel, bar_self, bar_tab;
-static XftColor      bar_run, bar_exit, bar_desk;
+static XftColor      bar_run, bar_exit, bar_desk[NDESKS];
 static unsigned long col_bar_bd;
 static unsigned int  barw, barh;
 static int           bar_batt = -1;
@@ -173,6 +173,9 @@ static char          launch_filter[256];
 static int           launch_filterlen;
 static int           launch_filtered[MAXCMDS];
 static int           launch_nfiltered;
+static int           launch_item_x[MAXCMDS];
+static int           launch_item_w[MAXCMDS];
+static int           launch_nitems;
 
 static void bar_redraw(void);
 
@@ -425,6 +428,7 @@ launcher_draw(void)
 	x += 200 + BAR_GAP;
 
 	maxw = (int)sw - x - BAR_GAP;
+	launch_nitems = 0;
 	for(i = launch_scroll; i < launch_nfiltered && x < (int)sw - BAR_GAP; i++){
 		int idx = launch_filtered[i];
 		name = launch_cmds[idx];
@@ -435,6 +439,9 @@ launcher_draw(void)
 			tw = maxw;
 		if(tw <= 0)
 			continue;
+		launch_item_x[launch_nitems] = x;
+		launch_item_w[launch_nitems] = tw;
+		launch_nitems++;
 		if(i == launch_sel){
 			XftDrawRect(bardraw, &bar_sel, x, 0, (unsigned int)tw, barh);
 			XftDrawStringUtf8(bardraw, &bar_self, xftfont,
@@ -450,6 +457,16 @@ launcher_draw(void)
 	}
 
 	XCopyArea(dpy, barpix, barwin, bargc, 0, 0, sw, barh, 0, 0);
+}
+
+static int
+launcher_hittest(int x)
+{
+	int i;
+	for(i = 0; i < launch_nitems; i++)
+		if(x >= launch_item_x[i] && x < launch_item_x[i] + launch_item_w[i])
+			return launch_scroll + i;
+	return -1;
 }
 
 static int
@@ -715,7 +732,7 @@ bar_redraw(void)
 		dbuf[0] = (char)('1' + i);
 		dbuf[1] = '\0';
 		bar_desk_x[i] = x;
-		bar_drawbtn(x, bar_desk_w, dbuf, 1, i == curdesk, &bar_desk);
+		bar_drawbtn(x, bar_desk_w, dbuf, 1, i == curdesk, &bar_desk[i]);
 		x += bar_desk_w + BAR_GAP;
 	}
 
@@ -1562,13 +1579,12 @@ moveclient(Client *c, XButtonEvent *start)
 }
 
 static void
-sweepnew(XButtonEvent *start)
+sweepnew(void)
 {
 	int bx, by;
 	unsigned int bdx, bdy;
 
-	if(!dosweep(1, start->x_root, start->y_root,
-		&bx, &by, &bdx, &bdy))
+	if(!dosweep(0, 0, 0, &bx, &by, &bdx, &bdy))
 		return;
 	setsweep(bx, by, bdx, bdy);
 	spawn(TERM);
@@ -1597,8 +1613,26 @@ buttonpress(XButtonEvent *e)
 	else if(btn == Button1 && (e->state & Mod1Mask))
 		btn = Button2;
 
-	/* click elsewhere hides launcher */
+	/* launcher click handling */
 	if(launch_visible){
+		if(e->window == barwin){
+			int idx = launcher_hittest(e->x);
+			if(idx >= 0 && idx < launch_nfiltered){
+				const char *cmd = launch_cmds[launch_filtered[idx]];
+				launcher_hide();
+				if(btn == Button3){
+					int bx, by;
+					unsigned int bdx, bdy;
+					if(dosweep(0, 0, 0, &bx, &by, &bdx, &bdy))
+						setsweep(bx, by, bdx, bdy);
+				}
+				spawn(cmd);
+				return;
+			}
+			/* click on input field - ignore */
+			if(e->x < 200 + BAR_GAP + BAR_GAP)
+				return;
+		}
 		launcher_hide();
 		return;
 	}
@@ -1631,7 +1665,7 @@ buttonpress(XButtonEvent *e)
 			return;
 		}
 		if(e->x >= bar_status_x && e->x < bar_exit_x){
-			sweepnew(e);
+			sweepnew();
 			return;
 		}
 		c = bar_hittest(e->x);
@@ -1653,7 +1687,7 @@ buttonpress(XButtonEvent *e)
 	}
 
 	if(e->window == root){
-		sweepnew(e);
+		sweepnew();
 		return;
 	}
 
@@ -1880,7 +1914,10 @@ setup_bar(void)
 	bar_tab = getxftcolor(COL_BAR_TAB);
 	bar_run = getxftcolor(COL_BAR_RUN);
 	bar_exit = getxftcolor(COL_BAR_EXIT);
-	bar_desk = getxftcolor(COL_BAR_DESK);
+	bar_desk[0] = getxftcolor(COL_BAR_DESK0);
+	bar_desk[1] = getxftcolor(COL_BAR_DESK1);
+	bar_desk[2] = getxftcolor(COL_BAR_DESK2);
+	bar_desk[3] = getxftcolor(COL_BAR_DESK3);
 	col_bar_bd = getcolor(COL_BAR_BD);
 
 	barw = sw;
@@ -2013,7 +2050,8 @@ cleanup(void)
 	{
 		XftColor *cols[] = {
 			&bar_fg, &bar_bg, &bar_sel, &bar_self,
-			&bar_tab, &bar_run, &bar_exit, &bar_desk
+			&bar_tab, &bar_run, &bar_exit,
+			&bar_desk[0], &bar_desk[1], &bar_desk[2], &bar_desk[3]
 		};
 		size_t i;
 		for(i = 0; i < LENGTH(cols); i++)
