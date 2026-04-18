@@ -95,6 +95,14 @@ enum {
 
 enum { TileNone = 0, TileN, TileS, TileE, TileW, TileNW, TileNE, TileSW, TileSE, TileMax };
 
+static const int border2tile[NBorder] = {
+	[BorderN] = TileN, [BorderS] = TileS, [BorderE] = TileE, [BorderW] = TileW,
+	[BorderNNW] = TileNW, [BorderWNW] = TileNW,
+	[BorderNNE] = TileNE, [BorderENE] = TileNE,
+	[BorderSSW] = TileSW, [BorderWSW] = TileSW,
+	[BorderSSE] = TileSE, [BorderESE] = TileSE,
+};
+
 typedef struct Client Client;
 struct Client {
 	Window  win;
@@ -130,7 +138,7 @@ static unsigned long col_active, col_inactive;
 static unsigned long col_red;
 static volatile sig_atomic_t running = 1;
 
-static Window        swN, swS, swE, swW;
+static Window        swout[4];
 
 static int           sweep_pending;
 static int           sweep_x, sweep_y;
@@ -346,6 +354,14 @@ cmdcmp(const void *a, const void *b)
 	return strcmp(*(char **)a, *(char **)b);
 }
 
+static int
+tabcmp(const void *a, const void *b)
+{
+	Window wa = (*(Client **)a)->win;
+	Window wb = (*(Client **)b)->win;
+	return (wa > wb) - (wa < wb);
+}
+
 static void
 scan_path(void)
 {
@@ -406,9 +422,8 @@ bar_drawbtn(int x, int w, const char *s, int len, int sel, XftColor *bg)
 static void
 launcher_draw(void)
 {
-	int i, x, ty, tw, maxw;
+	int i, x, ty, tw, maxw, idx, nlen, sel;
 	const char *name;
-	int nlen;
 	XGlyphInfo ext;
 
 	XSetForeground(dpy, bargc, bar_bg.pixel);
@@ -430,7 +445,7 @@ launcher_draw(void)
 	maxw = (int)sw - x - BAR_GAP;
 	launch_nitems = 0;
 	for(i = launch_scroll; i < launch_nfiltered && x < (int)sw - BAR_GAP && launch_nitems < MAXCMDS; i++){
-		int idx = launch_filtered[i];
+		idx = launch_filtered[i];
 		name = launch_cmds[idx];
 		nlen = (int)strlen(name);
 		XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)name, nlen, &ext);
@@ -442,15 +457,10 @@ launcher_draw(void)
 		launch_item_x[launch_nitems] = x;
 		launch_item_w[launch_nitems] = tw;
 		launch_nitems++;
-		if(i == launch_sel){
-			XftDrawRect(bardraw, &bar_sel, x, 0, (unsigned int)tw, barh);
-			XftDrawStringUtf8(bardraw, &bar_self, xftfont,
-				x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		} else {
-			XftDrawRect(bardraw, &bar_tab, x, 0, (unsigned int)tw, barh);
-			XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
-				x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		}
+		sel = (i == launch_sel);
+		XftDrawRect(bardraw, sel ? &bar_sel : &bar_tab, x, 0, (unsigned int)tw, barh);
+		XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
+			x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
 		XSetForeground(dpy, bargc, col_bar_bd);
 		XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)(tw - 1), barh - 1);
 		x += tw + BAR_GAP;
@@ -488,12 +498,11 @@ static void
 launcher_filter(void)
 {
 	int i;
+
 	launch_nfiltered = 0;
-	for(i = 0; i < launch_ncmds && launch_nfiltered < MAXCMDS; i++){
-		if(launch_filterlen == 0 || cistrstr(launch_cmds[i], launch_filter)){
+	for(i = 0; i < launch_ncmds && launch_nfiltered < MAXCMDS; i++)
+		if(launch_filterlen == 0 || cistrstr(launch_cmds[i], launch_filter))
 			launch_filtered[launch_nfiltered++] = i;
-		}
-	}
 	if(launch_nfiltered == 0)
 		launch_sel = -1;
 	else if(launch_sel >= launch_nfiltered)
@@ -511,7 +520,6 @@ launcher_show(void)
 	launch_filter[0] = '\0';
 	launch_filterlen = 0;
 	launch_sel = 0;
-	launch_scroll = 0;
 	launcher_filter();
 	if(XGrabKeyboard(dpy, root, True, GrabModeAsync, GrabModeAsync, CurrentTime) != GrabSuccess)
 		return;
@@ -542,6 +550,7 @@ launcher_key(XKeyEvent *e)
 {
 	char buf[32];
 	KeySym ks;
+	const char *cmd;
 	int len;
 
 	len = XLookupString(e, buf, sizeof(buf) - 1, &ks, NULL);
@@ -552,7 +561,7 @@ launcher_key(XKeyEvent *e)
 	}
 	if(ks == XK_Return || ks == XK_KP_Enter){
 		if(launch_sel >= 0 && launch_sel < launch_nfiltered){
-			const char *cmd = launch_cmds[launch_filtered[launch_sel]];
+			cmd = launch_cmds[launch_filtered[launch_sel]];
 			launcher_hide();
 			spawn(cmd);
 		}
@@ -566,7 +575,7 @@ launcher_key(XKeyEvent *e)
 		}
 		return;
 	}
-	if(ks == XK_Left || ks == XK_Up){
+	if(ks == XK_Left || ks == XK_Up || (ks == XK_Tab && (e->state & ShiftMask))){
 		if(launch_sel > 0){
 			launch_sel--;
 			if(launch_sel < launch_scroll)
@@ -575,7 +584,7 @@ launcher_key(XKeyEvent *e)
 		}
 		return;
 	}
-	if(ks == XK_Right || ks == XK_Down){
+	if(ks == XK_Right || ks == XK_Down || (ks == XK_Tab && !(e->state & ShiftMask))){
 		if(launch_sel < launch_nfiltered - 1){
 			launch_sel++;
 			if(launch_sel >= launch_scroll + launch_nitems && launch_nitems > 0)
@@ -584,32 +593,12 @@ launcher_key(XKeyEvent *e)
 		}
 		return;
 	}
-	if(ks == XK_Tab){
-		if(e->state & ShiftMask){
-			if(launch_sel > 0){
-				launch_sel--;
-				if(launch_sel < launch_scroll)
-					launch_scroll = launch_sel;
-			}
-		} else {
-			if(launch_sel < launch_nfiltered - 1){
-				launch_sel++;
-				if(launch_sel >= launch_scroll + launch_nitems && launch_nitems > 0)
-					launch_scroll = launch_sel - launch_nitems + 1;
-			}
-		}
-		launcher_draw();
-		return;
-	}
 
-	if(len > 0 && len < (int)sizeof(launch_filter) - launch_filterlen - 1){
-		if(buf[0] >= ' ' && buf[0] < 127){
-			memcpy(launch_filter + launch_filterlen, buf, (size_t)len);
-			launch_filterlen += len;
-			launch_filter[launch_filterlen] = '\0';
-			launcher_filter();
-			launcher_draw();
-		}
+	if(len == 1 && buf[0] >= ' ' && buf[0] < 127){
+		launch_filter[launch_filterlen++] = buf[0];
+		launch_filter[launch_filterlen] = '\0';
+		launcher_filter();
+		launcher_draw();
 	}
 }
 
@@ -619,30 +608,19 @@ bar_drawtabs(int x, int tabarea, int rightw)
 	Client *c;
 	const char *name;
 	char trunc[256];
-	int i, j, tw, tabx, nlen, drawn, ty;
+	int i, tw, tabx, nlen, drawn, ty, maxw, dotw, sel;
 
 	bar_ntabs = 0;
 	for(c = clients; c && bar_ntabs < MAXCLIENTS; c = c->next)
 		if(c->virt == curdesk)
 			bar_tabs[bar_ntabs++] = c;
 
-	/* sort by window id for stable order */
-	for(i = 0; i < bar_ntabs - 1; i++){
-		int min = i;
-		for(j = i + 1; j < bar_ntabs; j++)
-			if(bar_tabs[j]->win < bar_tabs[min]->win)
-				min = j;
-		if(min != i){
-			Client *tmp = bar_tabs[i];
-			bar_tabs[i] = bar_tabs[min];
-			bar_tabs[min] = tmp;
-		}
-	}
-
 	if(bar_ntabs <= 0 || tabarea <= 0)
 		return;
+	qsort(bar_tabs, (size_t)bar_ntabs, sizeof(Client *), tabcmp);
 
 	ty = BAR_PAD + xftfont->ascent;
+	dotw = xft_textwidth("..", 2);
 	drawn = 0;
 	tw = (tabarea - (bar_ntabs - 1) * BAR_GAP) / bar_ntabs;
 	if(tw < 30) tw = 30;
@@ -655,9 +633,9 @@ bar_drawtabs(int x, int tabarea, int rightw)
 		if(nlen > 250)
 			nlen = 250;
 
-		int maxw = tw - 2 * BAR_BTN_PAD;
+		maxw = tw - 2 * BAR_BTN_PAD;
 		if(maxw > 0 && xft_textwidth(name, nlen) > maxw){
-			while(nlen > 0 && xft_textwidth(name, nlen) + xft_textwidth("..", 2) > maxw)
+			while(nlen > 0 && xft_textwidth(name, nlen) + dotw > maxw)
 				nlen--;
 			if(nlen > 0){
 				memcpy(trunc, name, (size_t)nlen);
@@ -674,17 +652,11 @@ bar_drawtabs(int x, int tabarea, int rightw)
 		bar_tabs[drawn] = c;
 		drawn++;
 
-		if(c == current){
-			XftDrawRect(bardraw, &bar_sel,
-				tabx, 0, (unsigned int)tw, barh);
-			XftDrawStringUtf8(bardraw, &bar_self, xftfont,
-				tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		} else {
-			XftDrawRect(bardraw, &bar_tab,
-				tabx, 0, (unsigned int)tw, barh);
-			XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
-				tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		}
+		sel = (c == current);
+		XftDrawRect(bardraw, sel ? &bar_sel : &bar_tab,
+			tabx, 0, (unsigned int)tw, barh);
+		XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
+			tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
 		XSetForeground(dpy, bargc, col_bar_bd);
 		XDrawRectangle(dpy, barpix, bargc, tabx, 0,
 			(unsigned int)(tw - 1), barh - 1);
@@ -698,9 +670,8 @@ bar_redraw(void)
 {
 	time_t now;
 	struct tm *t;
-	char tbuf[64], bbuf[32];
-	int x, blen, tlen;
-	int rightw, tabarea, statusw, i;
+	char tbuf[64], bbuf[32], dbuf[2];
+	int x, blen, tlen, rightw, tabarea, statusw, i;
 
 	now = time(NULL);
 	t = localtime(&now);
@@ -722,14 +693,11 @@ bar_redraw(void)
 	XFillRectangle(dpy, barpix, bargc, 0, 0, barw, barh);
 
 	x = BAR_PAD;
-
-	/* Run button */
 	bar_run_x = x;
 	bar_run_w = xft_textwidth("Run", 3) + 2 * BAR_BTN_PAD;
 	bar_drawbtn(x, bar_run_w, "Run", 3, 0, &bar_run);
 	x += bar_run_w + BAR_GAP * 2;
 
-	/* Right side: Desktops, Battery, Clock, Exit */
 	bar_desk_w = xft_textwidth("0", 1) + 2 * BAR_BTN_PAD;
 	bar_exit_w = xft_textwidth("Exit", 4) + 2 * BAR_BTN_PAD;
 	statusw = xft_textwidth(bbuf, blen) + xft_textwidth(tbuf, tlen) + BAR_GAP * 2;
@@ -738,10 +706,8 @@ bar_redraw(void)
 
 	bar_drawtabs(x, tabarea, rightw);
 
-	/* Desktop buttons */
 	x = (int)barw - rightw + BAR_PAD;
 	for(i = 0; i < NDESKS; i++){
-		char dbuf[2];
 		dbuf[0] = (char)('1' + i);
 		dbuf[1] = '\0';
 		bar_desk_x[i] = x;
@@ -749,7 +715,6 @@ bar_redraw(void)
 		x += bar_desk_w + BAR_GAP;
 	}
 
-	/* Battery & Clock */
 	bar_status_x = x;
 	if(bbuf[0]){
 		XftDrawStringUtf8(bardraw, &bar_fg, xftfont, x, BAR_PAD + xftfont->ascent,
@@ -760,7 +725,6 @@ bar_redraw(void)
 		(const FcChar8 *)tbuf, tlen);
 	x += xft_textwidth(tbuf, tlen) + BAR_GAP * 2;
 
-	/* Exit button */
 	bar_exit_x = x;
 	bar_drawbtn(x, bar_exit_w, "Exit", 4, 0, &bar_exit);
 
@@ -829,10 +793,9 @@ getname(Client *c)
 	unsigned char *data = NULL;
 	char *fetched = NULL;
 
-	if(c->label){
-		free(c->label);
-		c->label = NULL;
-	}
+	free(c->label);
+	c->label = NULL;
+
 	if(XGetWindowProperty(dpy, c->win, net_wm_name, 0, 512, False,
 		utf8_string, &type, &fmt, &nitems, &after, &data) == Success
 	&& type == utf8_string && data && nitems > 0){
@@ -869,9 +832,8 @@ getproto(Client *c)
 static void
 sendcmessage(Window w, Atom proto, Atom data)
 {
-	XEvent ev;
+	XEvent ev = {0};
 
-	memset(&ev, 0, sizeof ev);
 	ev.xclient.type = ClientMessage;
 	ev.xclient.window = w;
 	ev.xclient.message_type = proto;
@@ -884,10 +846,8 @@ sendcmessage(Window w, Atom proto, Atom data)
 static void
 setwmstate(Client *c, long state)
 {
-	long data[2];
+	long data[2] = { state, (long)None };
 
-	data[0] = state;
-	data[1] = (long)None;
 	XChangeProperty(dpy, c->win, wm_state, wm_state, 32,
 		PropModeReplace, (unsigned char *)data, 2);
 }
@@ -895,9 +855,8 @@ setwmstate(Client *c, long state)
 static void
 sendconfig(Client *c)
 {
-	XConfigureEvent ce;
+	XConfigureEvent ce = {0};
 
-	memset(&ce, 0, sizeof ce);
 	ce.type = ConfigureNotify;
 	ce.event = c->win;
 	ce.window = c->win;
@@ -905,9 +864,6 @@ sendconfig(Client *c)
 	ce.y = c->y;
 	ce.width = (int)c->dx;
 	ce.height = (int)c->dy;
-	ce.border_width = 0;
-	ce.above = None;
-	ce.override_redirect = False;
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
@@ -930,19 +886,12 @@ grabbuttons(Client *c, int focused)
 }
 
 static void
-unfocus(Client *c)
-{
-	if(!c)
-		return;
-	setborder(c, 0);
-	grabbuttons(c, 0);
-}
-
-static void
 focus(Client *c)
 {
-	if(current && current != c)
-		unfocus(current);
+	if(current && current != c){
+		setborder(current, 0);
+		grabbuttons(current, 0);
+	}
 	if(!c)
 		return;
 	setborder(c, 1);
@@ -950,8 +899,6 @@ focus(Client *c)
 	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
 	if(c->proto & Ptakefocus)
 		sendcmessage(c->win, wm_protocols, wm_take_focus);
-	XSync(dpy, False);
-	XClearArea(dpy, c->win, 0, 0, 0, 0, True);
 	XRaiseWindow(dpy, c->frame);
 	current = c;
 	raisebar();
@@ -987,6 +934,7 @@ applylayout(Client *c)
 		XMoveResizeWindow(dpy, c->win,
 			BORDER, BORDER, c->dx, c->dy);
 	}
+	sendconfig(c);
 }
 
 static void focusnext(void);
@@ -1000,19 +948,16 @@ switch_to(int n)
 		return;
 	deskfocus[curdesk] = current;
 	curdesk = n;
-	for(c = clients; c; c = c->next){
-		if(c->virt != curdesk)
-			XUnmapWindow(dpy, c->frame);
-		else
-			XMapWindow(dpy, c->frame);
-	}
+	for(c = clients; c; c = c->next)
+		(c->virt == curdesk ? XMapWindow : XUnmapWindow)(dpy, c->frame);
 	current = deskfocus[curdesk];
 	if(current)
 		focus(current);
-	else
+	else {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
-	raisebar();
-	bar_redraw();
+		raisebar();
+		bar_redraw();
+	}
 }
 
 static void
@@ -1042,6 +987,8 @@ focusnext(void)
 			return;
 		}
 	XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
+	raisebar();
+	bar_redraw();
 }
 
 static Client *
@@ -1050,12 +997,10 @@ manage(Window w)
 	Client *c;
 	XWindowAttributes wa;
 	XSetWindowAttributes sa;
-	XSizeHints hints;
+	XSizeHints hints = {0};
 	long supplied;
 
-	if(!XGetWindowAttributes(dpy, w, &wa))
-		return NULL;
-	if(wa.override_redirect)
+	if(!XGetWindowAttributes(dpy, w, &wa) || wa.override_redirect)
 		return NULL;
 	c = winclient(w);
 	if(c)
@@ -1080,12 +1025,9 @@ manage(Window w)
 		c->x = wa.x;
 		c->y = wa.y;
 
-		memset(&hints, 0, sizeof hints);
-		if(XGetWMNormalHints(dpy, w, &hints, &supplied)
+		if(!(XGetWMNormalHints(dpy, w, &hints, &supplied)
 		&& (hints.flags & (USPosition | PPosition))
-		&& c->x > 0 && c->y > 0){
-			/* honour explicit position */
-		} else {
+		&& c->x > 0 && c->y > 0)){
 			c->x = (int)(sw - c->dx) / 2;
 			c->y = (int)barh + (int)(sh - barh - c->dy) / 2;
 		}
@@ -1130,7 +1072,6 @@ manage(Window w)
 	sendconfig(c);
 	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0,
 		(int)c->dx / 2, (int)c->dy / 2);
-	bar_redraw();
 	return c;
 }
 
@@ -1148,12 +1089,8 @@ unmanage(Client *c)
 	for(i = 0; i < NDESKS; i++)
 		if(deskfocus[i] == c)
 			deskfocus[i] = NULL;
-	if(current == c)
-		focusnext();
-	raisebar();
-	bar_redraw();
-	if(c->label)
-		free(c->label);
+	current == c ? focusnext() : bar_redraw();
+	free(c->label);
 	free(c);
 }
 
@@ -1162,10 +1099,8 @@ closeclient(Client *c)
 {
 	if(!c)
 		return;
-	if(c->proto & Pdelete)
-		sendcmessage(c->win, wm_protocols, wm_delete);
-	else
-		XKillClient(dpy, c->win);
+	(c->proto & Pdelete) ? sendcmessage(c->win, wm_protocols, wm_delete)
+	                     : XKillClient(dpy, c->win);
 }
 
 static void
@@ -1179,48 +1114,25 @@ clearsnap(Client *c)
 static void
 tilegeom(int dir, int *nx, int *ny, unsigned int *ndx, unsigned int *ndy)
 {
+	unsigned int hw = sw / 2 - 2 * BORDER;
+	unsigned int hh = (sh - barh) / 2 - 2 * BORDER;
+	int mx = (int)sw / 2 + BORDER;
+	int my = (int)barh + (int)(sh - barh) / 2 + BORDER;
+
 	*nx = BORDER;
 	*ny = (int)barh + BORDER;
 	*ndx = sw - 2 * BORDER;
 	*ndy = sh - barh - 2 * BORDER;
 
 	switch(dir){
-	case TileN:
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileS:
-		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileW:
-		*ndx = sw / 2 - 2 * BORDER;
-		break;
-	case TileE:
-		*nx = (int)sw / 2 + BORDER;
-		*ndx = sw / 2 - 2 * BORDER;
-		break;
-	case TileNW:
-		*ndx = sw / 2 - 2 * BORDER;
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileNE:
-		*nx = (int)sw / 2 + BORDER;
-		*ndx = sw / 2 - 2 * BORDER;
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileSW:
-		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
-		*ndx = sw / 2 - 2 * BORDER;
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileSE:
-		*nx = (int)sw / 2 + BORDER;
-		*ny = (int)barh + (int)(sh - barh) / 2 + BORDER;
-		*ndx = sw / 2 - 2 * BORDER;
-		*ndy = (sh - barh) / 2 - 2 * BORDER;
-		break;
-	case TileMax:
-		break;
+	case TileN:  *ndy = hh; break;
+	case TileS:  *ny = my; *ndy = hh; break;
+	case TileW:  *ndx = hw; break;
+	case TileE:  *nx = mx; *ndx = hw; break;
+	case TileNW: *ndx = hw; *ndy = hh; break;
+	case TileNE: *nx = mx; *ndx = hw; *ndy = hh; break;
+	case TileSW: *ny = my; *ndx = hw; *ndy = hh; break;
+	case TileSE: *nx = mx; *ny = my; *ndx = hw; *ndy = hh; break;
 	}
 }
 
@@ -1264,14 +1176,7 @@ tile(Client *c, int dir)
 		c->tiled = dir;
 	}
 	applylayout(c);
-	sendconfig(c);
 	raisebar();
-}
-
-static void
-maximize(Client *c)
-{
-	tile(c, TileMax);
 }
 
 static void
@@ -1297,7 +1202,6 @@ fullscreen(Client *c)
 			c->dy = c->ody;
 		}
 		applylayout(c);
-		sendconfig(c);
 		raisebar();
 	} else {
 		if(!c->tiled){
@@ -1312,7 +1216,6 @@ fullscreen(Client *c)
 		c->dx = sw;
 		c->dy = sh;
 		applylayout(c);
-		sendconfig(c);
 		XRaiseWindow(dpy, c->frame);
 	}
 }
@@ -1320,23 +1223,21 @@ fullscreen(Client *c)
 static void
 outline_show(int x, int y, unsigned int w, unsigned int h)
 {
-	XMoveResizeWindow(dpy, swN, x, y, MAX(w, 1), BORDER);
-	XMoveResizeWindow(dpy, swS, x, y+(int)h-BORDER, MAX(w, 1), BORDER);
-	XMoveResizeWindow(dpy, swW, x, y, BORDER, MAX(h, 1));
-	XMoveResizeWindow(dpy, swE, x+(int)w-BORDER, y, BORDER, MAX(h, 1));
-	XMapRaised(dpy, swN);
-	XMapRaised(dpy, swS);
-	XMapRaised(dpy, swW);
-	XMapRaised(dpy, swE);
+	int i;
+	XMoveResizeWindow(dpy, swout[0], x, y, MAX(w, 1), BORDER);
+	XMoveResizeWindow(dpy, swout[1], x, y+(int)h-BORDER, MAX(w, 1), BORDER);
+	XMoveResizeWindow(dpy, swout[2], x, y, BORDER, MAX(h, 1));
+	XMoveResizeWindow(dpy, swout[3], x+(int)w-BORDER, y, BORDER, MAX(h, 1));
+	for(i = 0; i < 4; i++)
+		XMapRaised(dpy, swout[i]);
 }
 
 static void
 outline_hide(void)
 {
-	XUnmapWindow(dpy, swN);
-	XUnmapWindow(dpy, swS);
-	XUnmapWindow(dpy, swW);
-	XUnmapWindow(dpy, swE);
+	int i;
+	for(i = 0; i < 4; i++)
+		XUnmapWindow(dpy, swout[i]);
 }
 
 static Window
@@ -1356,8 +1257,8 @@ dosweep(int have_origin, int sx, int sy,
 	int *rx, int *ry, unsigned int *rdx, unsigned int *rdy)
 {
 	XEvent ev;
-	int bx, by, drawn, done;
-	unsigned int bdx, bdy;
+	int bx = 0, by = 0, drawn = 0, done = 0;
+	unsigned int bdx = 0, bdy = 0;
 
 	if(XGrabPointer(dpy, root, False,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
@@ -1365,16 +1266,11 @@ dosweep(int have_origin, int sx, int sy,
 		CurrentTime) != GrabSuccess)
 		return 0;
 
-	drawn = 0;
-	bx = by = 0;
-	bdx = bdy = 0;
-
 	XSync(dpy, False);
 	while(XCheckMaskEvent(dpy, ButtonReleaseMask|ButtonPressMask, &ev))
 		;
 
 	if(!have_origin){
-		done = 0;
 		while(!done){
 			XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
 				|PointerMotionMask, &ev);
@@ -1384,9 +1280,8 @@ dosweep(int have_origin, int sx, int sy,
 				done = 1;
 			}
 		}
+		done = 0;
 	}
-
-	done = 0;
 	while(!done){
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
 			|PointerMotionMask, &ev);
@@ -1458,7 +1353,6 @@ reshapeclient(Client *c)
 	c->dy = bdy - 2 * BORDER;
 	clearsnap(c);
 	applylayout(c);
-	sendconfig(c);
 	raisebar();
 }
 
@@ -1466,14 +1360,10 @@ static void
 pullclient(Client *c, int bl, XButtonEvent *start)
 {
 	XEvent ev;
-	int ox, oy, cx, cy;
-	unsigned int odx, ody;
-	int bx, by;
-	unsigned int bdx, bdy;
-
-	ox = c->x; oy = c->y;
-	odx = c->dx; ody = c->dy;
-	cx = start->x_root; cy = start->y_root;
+	int ox = c->x, oy = c->y, cx = start->x_root, cy = start->y_root;
+	int bx = ox - BORDER, by = oy - BORDER;
+	unsigned int odx = c->dx, ody = c->dy;
+	unsigned int bdx = odx + 2*BORDER, bdy = ody + 2*BORDER;
 
 	if(XGrabPointer(dpy, root, False,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
@@ -1481,8 +1371,6 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 		c_border[bl], CurrentTime) != GrabSuccess)
 		return;
 
-	bx = ox - BORDER; by = oy - BORDER;
-	bdx = odx + 2*BORDER; bdy = ody + 2*BORDER;
 	outline_show(bx, by, bdx, bdy);
 
 	for(;;){
@@ -1535,7 +1423,6 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			c->x = bx + BORDER; c->y = by + BORDER;
 			c->dx = bdx - 2*BORDER; c->dy = bdy - 2*BORDER;
 			applylayout(c);
-			sendconfig(c);
 			raisebar();
 			break;
 		}
@@ -1547,14 +1434,15 @@ static void
 moveclient(Client *c, XButtonEvent *start)
 {
 	XEvent ev;
-	int ox, oy, mx, my;
-	int bx, by;
+	int ox, oy, mx, my, bx, by;
 	unsigned int bdx, bdy;
 
 	if(!c)
 		return;
 	ox = c->x; oy = c->y;
 	mx = start->x_root; my = start->y_root;
+	bx = ox - BORDER; by = oy - BORDER;
+	bdx = c->dx + 2*BORDER; bdy = c->dy + 2*BORDER;
 
 	if(XGrabPointer(dpy, root, False,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
@@ -1562,8 +1450,6 @@ moveclient(Client *c, XButtonEvent *start)
 		CurrentTime) != GrabSuccess)
 		return;
 
-	bdx = c->dx + 2*BORDER; bdy = c->dy + 2*BORDER;
-	bx = ox - BORDER; by = oy - BORDER;
 	outline_show(bx, by, bdx, bdy);
 
 	for(;;){
@@ -1616,9 +1502,10 @@ bar_hittest(int x)
 static void
 buttonpress(XButtonEvent *e)
 {
-	Client *c;
-	int bl, i;
-	unsigned int btn;
+	Client *c, *tosend;
+	const char *cmd;
+	int bl, i, px, py, old_fx, old_fy, idx, bx, by;
+	unsigned int btn, bdx, bdy;
 
 	btn = e->button;
 	if(btn == Button1 && (e->state & ControlMask))
@@ -1626,23 +1513,17 @@ buttonpress(XButtonEvent *e)
 	else if(btn == Button1 && (e->state & Mod1Mask))
 		btn = Button2;
 
-	/* launcher click handling */
 	if(launch_visible){
 		if(e->window == barwin){
-			int idx = launcher_hittest(e->x);
+			idx = launcher_hittest(e->x);
 			if(idx >= 0 && idx < launch_nfiltered){
-				const char *cmd = launch_cmds[launch_filtered[idx]];
+				cmd = launch_cmds[launch_filtered[idx]];
 				launcher_hide();
-				if(btn == Button3){
-					int bx, by;
-					unsigned int bdx, bdy;
-					if(dosweep(0, 0, 0, &bx, &by, &bdx, &bdy))
-						setsweep(bx, by, bdx, bdy);
-				}
+				if(btn == Button3 && dosweep(0, 0, 0, &bx, &by, &bdx, &bdy))
+					setsweep(bx, by, bdx, bdy);
 				spawn(cmd);
 				return;
 			}
-			/* click on input field - ignore */
 			if(e->x < 200 + BAR_GAP + BAR_GAP)
 				return;
 		}
@@ -1651,21 +1532,19 @@ buttonpress(XButtonEvent *e)
 	}
 
 	if(e->window == barwin){
-		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
+		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w)
 			return;
-		}
 		for(i = 0; i < NDESKS; i++){
 			if(e->x >= bar_desk_x[i] && e->x < bar_desk_x[i] + bar_desk_w){
 				if(btn == Button1)
 					switch_to(i);
 				else if(btn == Button2){
 					if(current && i != curdesk){
-						Client *tosend = current;
+						tosend = current;
 						tosend->virt = i;
 						XUnmapWindow(dpy, tosend->frame);
 						deskfocus[i] = tosend;
 						focusnext();
-						bar_redraw();
 					}
 				} else if(btn == Button3)
 					sendtodesktop(current, i);
@@ -1684,15 +1563,9 @@ buttonpress(XButtonEvent *e)
 		c = bar_hittest(e->x);
 		if(c){
 			switch(btn){
-			case Button1:
-				maximize(c);
-				break;
-			case Button2:
-				closeclient(c);
-				break;
-			case Button3:
-				reshapeclient(c);
-				break;
+			case Button1: tile(c, TileMax); break;
+			case Button2: closeclient(c); break;
+			case Button3: reshapeclient(c); break;
 			}
 			return;
 		}
@@ -1718,33 +1591,15 @@ buttonpress(XButtonEvent *e)
 	bl = borderorient(c, e->x, e->y);
 	if(bl != BorderUnknown){
 		if(btn == Button1){
-			/* double-click: tile to that side/corner */
 			if(e->window == last_click_win
 			&& e->time - last_click_time < DBLCLICK_MS){
-				int px = e->x_root;
-				int py = e->y_root;
-				int old_fx = c->x - BORDER;
-				int old_fy = c->y - BORDER;
-				int dir;
+				px = e->x_root;
+				py = e->y_root;
+				old_fx = c->x - BORDER;
+				old_fy = c->y - BORDER;
 				last_click_time = 0;
 				last_click_win = None;
-				if(bl == BorderNNW || bl == BorderWNW)
-					dir = TileNW;
-				else if(bl == BorderNNE || bl == BorderENE)
-					dir = TileNE;
-				else if(bl == BorderSSW || bl == BorderWSW)
-					dir = TileSW;
-				else if(bl == BorderSSE || bl == BorderESE)
-					dir = TileSE;
-				else if(bl == BorderN)
-					dir = TileN;
-				else if(bl == BorderS)
-					dir = TileS;
-				else if(bl == BorderW)
-					dir = TileW;
-				else
-					dir = TileE;
-				tile(c, dir);
+				tile(c, border2tile[bl]);
 				XWarpPointer(dpy, None, root, 0, 0, 0, 0,
 					px - old_fx + (c->x - BORDER),
 					py - old_fy + (c->y - BORDER));
@@ -1768,27 +1623,21 @@ static void
 motionnotify(XMotionEvent *e)
 {
 	Client *c;
-	int bl;
+	int bl, idx;
 
 	if(e->window == barwin){
 		if(launch_visible){
-			int idx = launcher_hittest(e->x);
+			idx = launcher_hittest(e->x);
 			if(idx >= 0 && idx != launch_sel){
 				launch_sel = idx;
 				launcher_draw();
 			}
-			return;
-		}
-		if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
+		} else if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
 			launcher_show();
-		} else {
-			c = bar_hittest(e->x);
-			if(c && c != current)
-				focus(c);
-		}
+		} else if((c = bar_hittest(e->x)) && c != current)
+			focus(c);
 		return;
 	}
-
 	c = frameclient(e->window);
 	if(!c)
 		return;
@@ -1802,25 +1651,19 @@ motionnotify(XMotionEvent *e)
 static void
 keypress(XKeyEvent *e)
 {
-	KeySym ks;
-
 	if(launch_visible){
 		launcher_key(e);
 		return;
 	}
-
-	ks = XLookupKeysym(e, 0);
-	if(ks == XK_F11)
+	if(XLookupKeysym(e, 0) == XK_F11)
 		fullscreen(current);
 }
 
 static void
 configreq(XConfigureRequestEvent *e)
 {
-	XWindowChanges wc;
-	Client *c;
+	Client *c = winclient(e->window);
 
-	c = winclient(e->window);
 	if(c){
 		if(c->fullscreen || c->tiled){
 			sendconfig(c);
@@ -1831,25 +1674,19 @@ configreq(XConfigureRequestEvent *e)
 		if(e->value_mask & CWWidth) c->dx = (unsigned int)e->width;
 		if(e->value_mask & CWHeight) c->dy = (unsigned int)e->height;
 		applylayout(c);
-		sendconfig(c);
 		return;
 	}
-	wc.x = e->x;
-	wc.y = e->y;
-	wc.width = e->width;
-	wc.height = e->height;
-	wc.border_width = e->border_width;
-	wc.sibling = e->above;
-	wc.stack_mode = e->detail;
-	XConfigureWindow(dpy, e->window, (unsigned int)e->value_mask, &wc);
+	XConfigureWindow(dpy, e->window, (unsigned int)e->value_mask, &(XWindowChanges){
+		.x = e->x, .y = e->y, .width = e->width, .height = e->height,
+		.border_width = e->border_width, .sibling = e->above, .stack_mode = e->detail
+	});
 }
 
 static void
 unmapnotify(XUnmapEvent *e)
 {
-	Client *c;
+	Client *c = winclient(e->window);
 
-	c = winclient(e->window);
 	if(!c)
 		return;
 	if(c->reparenting){
@@ -1865,9 +1702,8 @@ unmapnotify(XUnmapEvent *e)
 static void
 destroynotify(XDestroyWindowEvent *e)
 {
-	Client *c;
+	Client *c = winclient(e->window);
 
-	c = winclient(e->window);
 	if(!c)
 		return;
 	XDestroyWindow(dpy, c->frame);
@@ -1877,9 +1713,8 @@ destroynotify(XDestroyWindowEvent *e)
 static void
 propertynotify(XPropertyEvent *e)
 {
-	Client *c;
+	Client *c = winclient(e->window);
 
-	c = winclient(e->window);
 	if(!c)
 		return;
 	if(e->atom == XA_WM_NAME || e->atom == net_wm_name){
@@ -1892,18 +1727,15 @@ static void
 scan(void)
 {
 	unsigned int i, n;
-	Window d1, d2, *wins;
+	Window d1, d2, *wins = NULL;
 	XWindowAttributes wa;
 
-	wins = NULL;
 	if(!XQueryTree(dpy, root, &d1, &d2, &wins, &n))
 		return;
 	for(i = 0; i < n; i++){
-		if(!XGetWindowAttributes(dpy, wins[i], &wa))
-			continue;
-		if(wa.override_redirect || wa.map_state != IsViewable)
-			continue;
-		manage(wins[i]);
+		if(XGetWindowAttributes(dpy, wins[i], &wa)
+		&& !wa.override_redirect && wa.map_state == IsViewable)
+			manage(wins[i]);
 	}
 	if(wins) XFree(wins);
 }
@@ -1913,12 +1745,10 @@ grabkeys(void)
 {
 	unsigned int mods[] = { 0, LockMask, Mod2Mask, LockMask|Mod2Mask };
 	unsigned int i;
-	KeyCode f11;
+	KeyCode f11 = XKeysymToKeycode(dpy, XK_F11);
 
-	f11 = XKeysymToKeycode(dpy, XK_F11);
 	for(i = 0; i < LENGTH(mods); i++)
-		XGrabKey(dpy, f11, MOD|mods[i], root,
-			True, GrabModeAsync, GrabModeAsync);
+		XGrabKey(dpy, f11, MOD|mods[i], root, True, GrabModeAsync, GrabModeAsync);
 }
 
 static void
@@ -1956,6 +1786,8 @@ setup_bar(void)
 		(unsigned int)DefaultDepth(dpy, screen));
 	bardraw = XftDrawCreate(dpy, barpix,
 		DefaultVisual(dpy, screen), DefaultColormap(dpy, screen));
+	if(!bardraw)
+		errx(1, "XftDrawCreate failed");
 
 	scan_path();
 
@@ -1970,6 +1802,7 @@ static void
 setup(void)
 {
 	XSetWindowAttributes wa;
+	int i;
 
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
@@ -2011,10 +1844,8 @@ setup(void)
 	c_border[BorderWNW] = XCreateFontCursor(dpy, XC_top_left_corner);
 	c_border[BorderNNW] = c_border[BorderWNW];
 
-	swN = make_outline_bar();
-	swS = make_outline_bar();
-	swE = make_outline_bar();
-	swW = make_outline_bar();
+	for(i = 0; i < 4; i++)
+		swout[i] = make_outline_bar();
 
 	wa.cursor = c_arrow;
 	wa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask
@@ -2036,48 +1867,19 @@ static void
 cleanup(void)
 {
 	Client *c, *next;
+	int i;
 
 	for(c = clients; c; c = next){
 		next = c->next;
-		XUngrabButton(dpy, AnyButton, AnyModifier, c->win);
 		XReparentWindow(dpy, c->win, root, c->x, c->y);
 		XRemoveFromSaveSet(dpy, c->win);
 		XDestroyWindow(dpy, c->frame);
-		if(c->label) free(c->label);
+		free(c->label);
 		free(c);
 	}
-	clients = NULL;
-	current = NULL;
-
 	closebattery();
-	if(bardraw) XftDrawDestroy(bardraw);
-	if(barpix) XFreePixmap(dpy, barpix);
-	if(bargc) XFreeGC(dpy, bargc);
-	XDestroyWindow(dpy, barwin);
-
-	{
-		int i;
-		for(i = 0; i < launch_ncmds; i++)
-			free(launch_cmds[i]);
-	}
-
-	XDestroyWindow(dpy, swN);
-	XDestroyWindow(dpy, swS);
-	XDestroyWindow(dpy, swE);
-	XDestroyWindow(dpy, swW);
-
-	{
-		XftColor *cols[] = {
-			&bar_fg, &bar_bg, &bar_sel, &bar_self,
-			&bar_tab, &bar_run, &bar_exit,
-			&bar_desk[0], &bar_desk[1], &bar_desk[2], &bar_desk[3]
-		};
-		size_t i;
-		for(i = 0; i < LENGTH(cols); i++)
-			XftColorFree(dpy, DefaultVisual(dpy, screen),
-				DefaultColormap(dpy, screen), cols[i]);
-	}
-	if(xftfont) XftFontClose(dpy, xftfont);
+	for(i = 0; i < launch_ncmds; i++)
+		free(launch_cmds[i]);
 
 	XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
 	XCloseDisplay(dpy);
@@ -2122,11 +1924,8 @@ run(void)
 			case MotionNotify:
 				motionnotify(&ev.xmotion); break;
 			case Expose:
-				if(ev.xexpose.count != 0)
-					break;
-				if(ev.xexpose.window == barwin)
-					XCopyArea(dpy, barpix, barwin, bargc,
-						0, 0, barw, barh, 0, 0);
+				if(ev.xexpose.count == 0 && ev.xexpose.window == barwin)
+					XCopyArea(dpy, barpix, barwin, bargc, 0, 0, barw, barh, 0, 0);
 				break;
 			}
 		}
@@ -2143,16 +1942,13 @@ int
 main(int argc, char *argv[])
 {
 	if(argc > 1){
-		if(strcmp(argv[1], "-v") == 0){
-			fprintf(stderr, "9x more scum than rio: " VERSION "\n");
-			return 0;
-		}
-		fprintf(stderr, "usage: 9x [-v]\n");
-		return 1;
+		fprintf(stderr, strcmp(argv[1], "-v") == 0
+			? "9x more scum than rio: " VERSION "\\n"
+			: "usage: 9x [-v]\\n");
+		return strcmp(argv[1], "-v") != 0;
 	}
-	dpy = XOpenDisplay(NULL);
-	if(!dpy){
-		fprintf(stderr, "9x: cannot open display\n");
+	if(!(dpy = XOpenDisplay(NULL))){
+		fprintf(stderr, "9x: cannot open display\\n");
 		return 1;
 	}
 	setup();
