@@ -17,9 +17,9 @@
 
 #define BORDER      4
 #define CORNER      25
-#define XFTFONT     "monospace:size=9"
+#define XFTFONT     "sans:bold:size=8"
 #define TERM        "xterm"
-#define NDESKS      4
+#define NDESKS      9
 #define BAR_PAD     2
 #define BAR_BTN_PAD 4
 #define BAR_GAP     2
