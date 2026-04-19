@@ -62,10 +62,7 @@ MOUSE
      Doubleclick  Tile.
 
    Root Window
-     Any Button  Sweep.
-
-KEYBOARD
-     F11  Fullscreen.
+     Button 1  Sweep.
 
 CUSTOMIZATION
      Read the goddamn src(1) you filthy heathen.
