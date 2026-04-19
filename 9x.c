@@ -186,6 +186,7 @@ static int           launch_nfiltered;
 static int           launch_item_x[MAXCMDS];
 static int           launch_item_w[MAXCMDS];
 static int           launch_nitems;
+static time_t        launch_hide_time;
 
 static void bar_redraw(void);
 
@@ -555,6 +556,7 @@ launcher_hide(void)
 	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	launch_visible = 0;
+	launch_hide_time = time(NULL);
 	bar_redraw();
 }
 
@@ -573,11 +575,14 @@ launcher_key(XKeyEvent *e)
 		return;
 	}
 	if(ks == XK_Return || ks == XK_KP_Enter){
-		if(launch_sel >= 0 && launch_sel < launch_nfiltered){
+		if(launch_sel >= 0 && launch_sel < launch_nfiltered)
 			cmd = launch_cmds[launch_filtered[launch_sel]];
-			launcher_hide();
-			spawn(cmd);
-		}
+		else if(launch_filterlen > 0)
+			cmd = launch_filter;
+		else
+			return;
+		launcher_hide();
+		spawn(cmd);
 		return;
 	}
 	if(ks == XK_BackSpace){
@@ -881,6 +886,9 @@ sendconfig(Client *c)
 	ce.y = c->y;
 	ce.width = (int)c->dx;
 	ce.height = (int)c->dy;
+	ce.border_width = 0;
+	ce.above = None;
+	ce.override_redirect = False;
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
@@ -1067,8 +1075,10 @@ manage(Window w)
 	XSetWindowBorderWidth(dpy, w, 0);
 	XSelectInput(dpy, w, PropertyChangeMask | StructureNotifyMask);
 	sendconfig(c);
+	XSync(dpy, False);
 	XMapWindow(dpy, w);
 	XMapWindow(dpy, c->frame);
+	XClearArea(dpy, w, 0, 0, 0, 0, True);
 
 	c->next = clients;
 	clients = c;
@@ -1144,43 +1154,54 @@ tilegeom(int dir, int *nx, int *ny, unsigned int *ndx, unsigned int *ndy)
 }
 
 static void
-tile(Client *c, int dir)
+savegeom(Client *c)
 {
-	int nx, ny;
-	unsigned int ndx, ndy;
+	if(!c->tiled && !c->fullscreen){
+		c->ox = c->x;
+		c->oy = c->y;
+		c->odx = c->dx;
+		c->ody = c->dy;
+	}
+}
 
-	if(!c || c->fullscreen)
-		return;
-	if(c->tiled == dir){
-		if(c->prev_tiled){
-			tilegeom(c->prev_tiled, &nx, &ny, &ndx, &ndy);
-			c->x = nx;
-			c->y = ny;
-			c->dx = ndx;
-			c->dy = ndy;
-			c->tiled = c->prev_tiled;
-		} else {
-			c->x = c->ox;
-			c->y = c->oy;
-			c->dx = c->odx;
-			c->dy = c->ody;
-			c->tiled = TileNone;
-		}
-		c->prev_tiled = TileNone;
-	} else {
-		if(!c->tiled){
-			c->ox = c->x;
-			c->oy = c->y;
-			c->odx = c->dx;
-			c->ody = c->dy;
-		}
-		c->prev_tiled = c->tiled;
-		tilegeom(dir, &nx, &ny, &ndx, &ndy);
+static void
+restoregeom(Client *c)
+{
+	if(c->tiled){
+		int nx, ny;
+		unsigned int ndx, ndy;
+		tilegeom(c->tiled, &nx, &ny, &ndx, &ndy);
 		c->x = nx;
 		c->y = ny;
 		c->dx = ndx;
 		c->dy = ndy;
+	} else {
+		c->x = c->ox;
+		c->y = c->oy;
+		c->dx = c->odx;
+		c->dy = c->ody;
+	}
+}
+
+static void
+tile(Client *c, int dir)
+{
+	if(!c || c->fullscreen)
+		return;
+	if(c->tiled == dir){
+		if(c->prev_tiled){
+			c->tiled = c->prev_tiled;
+			restoregeom(c);
+		} else {
+			c->tiled = TileNone;
+			restoregeom(c);
+		}
+		c->prev_tiled = TileNone;
+	} else {
+		savegeom(c);
+		c->prev_tiled = c->tiled;
 		c->tiled = dir;
+		restoregeom(c);
 	}
 	applylayout(c);
 	raisebar();
@@ -1189,34 +1210,15 @@ tile(Client *c, int dir)
 static void
 fullscreen(Client *c)
 {
-	int nx, ny;
-	unsigned int ndx, ndy;
-
 	if(!c)
 		return;
 	if(c->fullscreen){
 		c->fullscreen = 0;
-		if(c->tiled){
-			tilegeom(c->tiled, &nx, &ny, &ndx, &ndy);
-			c->x = nx;
-			c->y = ny;
-			c->dx = ndx;
-			c->dy = ndy;
-		} else {
-			c->x = c->ox;
-			c->y = c->oy;
-			c->dx = c->odx;
-			c->dy = c->ody;
-		}
+		restoregeom(c);
 		applylayout(c);
 		raisebar();
 	} else {
-		if(!c->tiled){
-			c->ox = c->x;
-			c->oy = c->y;
-			c->odx = c->dx;
-			c->ody = c->dy;
-		}
+		savegeom(c);
 		c->fullscreen = 1;
 		c->x = 0;
 		c->y = 0;
@@ -1643,7 +1645,8 @@ motionnotify(XMotionEvent *e)
 				launcher_draw();
 			}
 		} else if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
-			launcher_show();
+			if(time(NULL) != launch_hide_time)
+				launcher_show();
 		} else if((c = bar_hittest(e->x)) && c != current)
 			focus(c);
 		return;
