@@ -186,7 +186,6 @@ static int           launch_nfiltered;
 static int           launch_item_x[MAXCMDS];
 static int           launch_item_w[MAXCMDS];
 static int           launch_nitems;
-static time_t        launch_hide_time;
 
 static void bar_redraw(void);
 
@@ -556,7 +555,6 @@ launcher_hide(void)
 	XUngrabPointer(dpy, CurrentTime);
 	XUngrabKeyboard(dpy, CurrentTime);
 	launch_visible = 0;
-	launch_hide_time = time(NULL);
 	bar_redraw();
 }
 
@@ -575,14 +573,11 @@ launcher_key(XKeyEvent *e)
 		return;
 	}
 	if(ks == XK_Return || ks == XK_KP_Enter){
-		if(launch_sel >= 0 && launch_sel < launch_nfiltered)
+		if(launch_sel >= 0 && launch_sel < launch_nfiltered){
 			cmd = launch_cmds[launch_filtered[launch_sel]];
-		else if(launch_filterlen > 0)
-			cmd = launch_filter;
-		else
-			return;
-		launcher_hide();
-		spawn(cmd);
+			launcher_hide();
+			spawn(cmd);
+		}
 		return;
 	}
 	if(ks == XK_BackSpace){
@@ -886,9 +881,6 @@ sendconfig(Client *c)
 	ce.y = c->y;
 	ce.width = (int)c->dx;
 	ce.height = (int)c->dy;
-	ce.border_width = 0;
-	ce.above = None;
-	ce.override_redirect = False;
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
@@ -1003,6 +995,27 @@ focusnext(void)
 	focus(c);
 }
 
+static void
+clampframe(int *bx, int *by, unsigned int *bdx, unsigned int *bdy)
+{
+	if(*bdx < MINSIZE + 2*BORDER) *bdx = MINSIZE + 2*BORDER;
+	if(*bdy < MINSIZE + 2*BORDER) *bdy = MINSIZE + 2*BORDER;
+	if(*bx < 0) *bx = 0;
+	if(*by < (int)barh) *by = (int)barh;
+	if(*bx + (int)*bdx > (int)sw) *bx = (int)sw - (int)*bdx;
+	if(*by + (int)*bdy > (int)sh) *by = (int)sh - (int)*bdy;
+}
+
+static void
+clampgeom(Client *c)
+{
+	int bx = c->x - BORDER, by = c->y - BORDER;
+	unsigned int bdx = c->dx + 2*BORDER, bdy = c->dy + 2*BORDER;
+	clampframe(&bx, &by, &bdx, &bdy);
+	c->x = bx + BORDER; c->y = by + BORDER;
+	c->dx = bdx - 2*BORDER; c->dy = bdy - 2*BORDER;
+}
+
 static Client *
 manage(Window w)
 {
@@ -1031,6 +1044,7 @@ manage(Window w)
 		c->dx = sweep_dx;
 		c->dy = sweep_dy;
 		sweep_pending = 0;
+		clampgeom(c);
 	} else {
 		c->dx = (unsigned int)wa.width;
 		c->dy = (unsigned int)wa.height;
@@ -1043,15 +1057,7 @@ manage(Window w)
 			c->x = (int)(sw - c->dx) / 2;
 			c->y = (int)barh + (int)(sh - barh - c->dy) / 2;
 		}
-
-		if(c->x + (int)c->dx + BORDER > (int)sw)
-			c->x = (int)sw - (int)c->dx - BORDER;
-		if(c->y + (int)c->dy + BORDER > (int)sh)
-			c->y = (int)sh - (int)c->dy - BORDER;
-		if(c->x < BORDER)
-			c->x = BORDER;
-		if(c->y < (int)barh + BORDER)
-			c->y = (int)barh + BORDER;
+		clampgeom(c);
 	}
 
 	getname(c);
@@ -1075,10 +1081,8 @@ manage(Window w)
 	XSetWindowBorderWidth(dpy, w, 0);
 	XSelectInput(dpy, w, PropertyChangeMask | StructureNotifyMask);
 	sendconfig(c);
-	XSync(dpy, False);
 	XMapWindow(dpy, w);
 	XMapWindow(dpy, c->frame);
-	XClearArea(dpy, w, 0, 0, 0, 0, True);
 
 	c->next = clients;
 	clients = c;
@@ -1154,54 +1158,43 @@ tilegeom(int dir, int *nx, int *ny, unsigned int *ndx, unsigned int *ndy)
 }
 
 static void
-savegeom(Client *c)
-{
-	if(!c->tiled && !c->fullscreen){
-		c->ox = c->x;
-		c->oy = c->y;
-		c->odx = c->dx;
-		c->ody = c->dy;
-	}
-}
-
-static void
-restoregeom(Client *c)
-{
-	if(c->tiled){
-		int nx, ny;
-		unsigned int ndx, ndy;
-		tilegeom(c->tiled, &nx, &ny, &ndx, &ndy);
-		c->x = nx;
-		c->y = ny;
-		c->dx = ndx;
-		c->dy = ndy;
-	} else {
-		c->x = c->ox;
-		c->y = c->oy;
-		c->dx = c->odx;
-		c->dy = c->ody;
-	}
-}
-
-static void
 tile(Client *c, int dir)
 {
+	int nx, ny;
+	unsigned int ndx, ndy;
+
 	if(!c || c->fullscreen)
 		return;
 	if(c->tiled == dir){
 		if(c->prev_tiled){
+			tilegeom(c->prev_tiled, &nx, &ny, &ndx, &ndy);
+			c->x = nx;
+			c->y = ny;
+			c->dx = ndx;
+			c->dy = ndy;
 			c->tiled = c->prev_tiled;
-			restoregeom(c);
 		} else {
+			c->x = c->ox;
+			c->y = c->oy;
+			c->dx = c->odx;
+			c->dy = c->ody;
 			c->tiled = TileNone;
-			restoregeom(c);
 		}
 		c->prev_tiled = TileNone;
 	} else {
-		savegeom(c);
+		if(!c->tiled){
+			c->ox = c->x;
+			c->oy = c->y;
+			c->odx = c->dx;
+			c->ody = c->dy;
+		}
 		c->prev_tiled = c->tiled;
+		tilegeom(dir, &nx, &ny, &ndx, &ndy);
+		c->x = nx;
+		c->y = ny;
+		c->dx = ndx;
+		c->dy = ndy;
 		c->tiled = dir;
-		restoregeom(c);
 	}
 	applylayout(c);
 	raisebar();
@@ -1210,15 +1203,34 @@ tile(Client *c, int dir)
 static void
 fullscreen(Client *c)
 {
+	int nx, ny;
+	unsigned int ndx, ndy;
+
 	if(!c)
 		return;
 	if(c->fullscreen){
 		c->fullscreen = 0;
-		restoregeom(c);
+		if(c->tiled){
+			tilegeom(c->tiled, &nx, &ny, &ndx, &ndy);
+			c->x = nx;
+			c->y = ny;
+			c->dx = ndx;
+			c->dy = ndy;
+		} else {
+			c->x = c->ox;
+			c->y = c->oy;
+			c->dx = c->odx;
+			c->dy = c->ody;
+		}
 		applylayout(c);
 		raisebar();
 	} else {
-		savegeom(c);
+		if(!c->tiled){
+			c->ox = c->x;
+			c->oy = c->y;
+			c->odx = c->dx;
+			c->ody = c->dy;
+		}
 		c->fullscreen = 1;
 		c->x = 0;
 		c->y = 0;
@@ -1304,6 +1316,7 @@ dosweep(int have_origin, int sx, int sy,
 			bx = x1; by = y1;
 			bdx = (unsigned int)(x2 - x1);
 			bdy = (unsigned int)(y2 - y1);
+			clampframe(&bx, &by, &bdx, &bdy);
 			if(bdx >= 2*BORDER && bdy >= 2*BORDER){
 				outline_show(bx, by, bdx, bdy);
 				drawn = 1;
@@ -1326,7 +1339,7 @@ dosweep(int have_origin, int sx, int sy,
 		outline_hide();
 	XUngrabPointer(dpy, CurrentTime);
 
-	if(bdx <= 2*BORDER + MINSIZE || bdy <= 2*BORDER + MINSIZE)
+	if(bdx < 2*BORDER + MINSIZE || bdy < 2*BORDER + MINSIZE)
 		return 0;
 
 	*rx = bx;
@@ -1339,6 +1352,7 @@ dosweep(int have_origin, int sx, int sy,
 static void
 setsweep(int bx, int by, unsigned int bdx, unsigned int bdy)
 {
+	clampframe(&bx, &by, &bdx, &bdy);
 	sweep_x = bx + BORDER;
 	sweep_y = by + BORDER;
 	sweep_dx = bdx - 2 * BORDER;
@@ -1360,6 +1374,7 @@ reshapeclient(Client *c)
 	c->y = by + BORDER;
 	c->dx = bdx - 2 * BORDER;
 	c->dy = bdy - 2 * BORDER;
+	clampgeom(c);
 	clearsnap(c);
 	applylayout(c);
 	raisebar();
@@ -1417,11 +1432,10 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			default:
 				break;
 			}
-			if(ndx < MINSIZE) ndx = MINSIZE;
-			if(ndy < MINSIZE) ndy = MINSIZE;
 			bx = nx - BORDER; by = ny - BORDER;
-			bdx = (unsigned int)ndx + 2*BORDER;
-			bdy = (unsigned int)ndy + 2*BORDER;
+			bdx = ndx > 0 ? (unsigned int)ndx + 2*BORDER : 2*BORDER;
+			bdy = ndy > 0 ? (unsigned int)ndy + 2*BORDER : 2*BORDER;
+			clampframe(&bx, &by, &bdx, &bdy);
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonPress){
@@ -1468,6 +1482,7 @@ moveclient(Client *c, XButtonEvent *start)
 			clearsnap(c);
 			bx = ox + (ev.xmotion.x_root - mx) - BORDER;
 			by = oy + (ev.xmotion.y_root - my) - BORDER;
+			clampframe(&bx, &by, &bdx, &bdy);
 			outline_show(bx, by, bdx, bdy);
 			XFlush(dpy);
 		} else if(ev.type == ButtonRelease){
@@ -1645,8 +1660,7 @@ motionnotify(XMotionEvent *e)
 				launcher_draw();
 			}
 		} else if(e->x >= bar_run_x && e->x < bar_run_x + bar_run_w){
-			if(time(NULL) != launch_hide_time)
-				launcher_show();
+			launcher_show();
 		} else if((c = bar_hittest(e->x)) && c != current)
 			focus(c);
 		return;
@@ -1686,6 +1700,7 @@ configreq(XConfigureRequestEvent *e)
 		if(e->value_mask & CWY) c->y = e->y;
 		if(e->value_mask & CWWidth) c->dx = (unsigned int)e->width;
 		if(e->value_mask & CWHeight) c->dy = (unsigned int)e->height;
+		clampgeom(c);
 		applylayout(c);
 		return;
 	}
