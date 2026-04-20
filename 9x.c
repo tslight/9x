@@ -114,6 +114,7 @@ struct Client {
 	Client *next;
 };
 enum { Pdelete = 1, Ptakefocus = 2 };
+enum { StateRemove, StateAdd, StateToggle };
 
 static Display      *dpy;
 static int           screen;
@@ -150,7 +151,6 @@ static int           launch_filterlen, launch_nfiltered, launch_nitems;
 static char         *launch_cmds[MAXCMDS];
 static char          launch_filter[256];
 static int           launch_filtered[MAXCMDS], launch_item_x[MAXCMDS], launch_item_w[MAXCMDS];
-static int           launch_nitems;
 static void bar_redraw(void);
 
 static void
@@ -180,9 +180,12 @@ getxftcolor(unsigned long rgb)
 static Cursor
 makecursor(Cursordata *d)
 {
-	XColor bl, wh, dummy;
-	XAllocNamedColor(dpy, DefaultColormap(dpy, screen), "black", &bl, &dummy);
-	XAllocNamedColor(dpy, DefaultColormap(dpy, screen), "white", &wh, &dummy);
+	XColor bl = {0}, wh = {0}, dummy;
+	Colormap cmap = DefaultColormap(dpy, screen);
+	if(!XAllocNamedColor(dpy, cmap, "black", &bl, &dummy))
+		bl.pixel = BlackPixel(dpy, screen);
+	if(!XAllocNamedColor(dpy, cmap, "white", &wh, &dummy))
+		wh.pixel = WhitePixel(dpy, screen);
 	Pixmap f = XCreatePixmapFromBitmapData(dpy, root, (char *)d->fore, d->width, d->width, 1, 0, 1);
 	Pixmap m = XCreatePixmapFromBitmapData(dpy, root, (char *)d->mask, d->width, d->width, 1, 0, 1);
 	Cursor cur = XCreatePixmapCursor(dpy, f, m, &bl, &wh, d->hot[0], d->hot[1]);
@@ -199,15 +202,35 @@ xft_textwidth(const char *s, int len)
 	return ext.xOff;
 }
 
-static int handler(Display *d, XErrorEvent *e) { USED(d); USED(e); return 0; }
-static void sigchld(int sig) { USED(sig); while(waitpid(-1, NULL, WNOHANG) > 0); }
-static void sigterm(int sig) { USED(sig); running = 0; }
+static int
+handler(Display *d, XErrorEvent *e)
+{
+	USED(d);
+	USED(e);
+	return 0;
+}
+
+static void
+sigchld(int sig)
+{
+	USED(sig);
+	while(waitpid(-1, NULL, WNOHANG) > 0)
+		;
+}
+
+static void
+sigterm(int sig)
+{
+	USED(sig);
+	running = 0;
+}
 
 static void
 spawn(const char *cmd)
 {
 	pid_t p = fork();
-	if(p < 0) return;
+	if(p < 0)
+		return;
 	if(p == 0){
 		if(fork() == 0){
 			setsid();
@@ -272,8 +295,11 @@ readsysfs(const char *path)
 {
 	FILE *f;
 	int n = -1;
-	if((f = fopen(path, "r")))
-		fscanf(f, "%d", &n), fclose(f);
+	if((f = fopen(path, "r")) != NULL){
+		if(fscanf(f, "%d", &n) != 1)
+			n = -1;
+		fclose(f);
+	}
 	return n;
 }
 static void
@@ -429,16 +455,16 @@ launcher_hittest(int x)
 }
 
 static int
-cistrstr(const char *h, const char *n)
+match(const char *s, const char *sub)
 {
-	size_t i, j, nlen;
-	if(!n[0]) return 1;
-	nlen = strlen(n);
-	for(i = 0; h[i]; i++){
-		for(j = 0; j < nlen && h[i+j]; j++)
-			if(tolower((unsigned char)h[i+j]) != tolower((unsigned char)n[j]))
+	size_t i, j, sublen;
+	if(!sub[0]) return 1;
+	sublen = strlen(sub);
+	for(i = 0; s[i]; i++){
+		for(j = 0; j < sublen && s[i+j]; j++)
+			if(tolower((unsigned char)s[i+j]) != tolower((unsigned char)sub[j]))
 				break;
-		if(j == nlen) return 1;
+		if(j == sublen) return 1;
 	}
 	return 0;
 }
@@ -448,7 +474,7 @@ launcher_filter(void)
 {
 	launch_nfiltered = 0;
 	for(int i = 0; i < launch_ncmds && launch_nfiltered < MAXCMDS; i++)
-		if(launch_filterlen == 0 || cistrstr(launch_cmds[i], launch_filter))
+		if(launch_filterlen == 0 || match(launch_cmds[i], launch_filter))
 			launch_filtered[launch_nfiltered++] = i;
 	if(launch_nfiltered == 0)
 		launch_sel = -1;
@@ -814,10 +840,17 @@ sendconfig(Client *c)
 	ce.type = ConfigureNotify;
 	ce.event = c->win;
 	ce.window = c->win;
-	ce.x = c->x;
-	ce.y = c->y;
-	ce.width = (int)c->dx;
-	ce.height = (int)c->dy;
+	if(c->fullscreen){
+		ce.x = 0;
+		ce.y = 0;
+		ce.width = (int)sw;
+		ce.height = (int)sh;
+	} else {
+		ce.x = c->x;
+		ce.y = c->y;
+		ce.width = (int)c->dx;
+		ce.height = (int)c->dy;
+	}
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
@@ -952,8 +985,12 @@ switch_to(int n)
 	deskfocus[curdesk] = current;
 	curdesk = n;
 	ewmh_set(root, net_cur_desk, XA_CARDINAL, 32, &(long){n}, 1);
-	for(c = clients; c; c = c->next)
-		(c->virt == curdesk ? XMapWindow : XUnmapWindow)(dpy, c->frame);
+	for(c = clients; c; c = c->next){
+		if(c->virt == curdesk)
+			XMapWindow(dpy, c->frame);
+		else
+			XUnmapWindow(dpy, c->frame);
+	}
 	focus(deskfocus[curdesk]);
 }
 
@@ -1148,16 +1185,20 @@ static void
 savegeom(Client *c)
 {
 	if(!c->tiled && !c->fullscreen){
-		c->ox = c->x; c->oy = c->y;
-		c->odx = c->dx; c->ody = c->dy;
+		c->ox = c->x;
+		c->oy = c->y;
+		c->odx = c->dx;
+		c->ody = c->dy;
 	}
 }
 
 static void
 restoregeom(Client *c)
 {
-	c->x = c->ox; c->y = c->oy;
-	c->dx = c->odx; c->dy = c->ody;
+	c->x = c->ox;
+	c->y = c->oy;
+	c->dx = c->odx;
+	c->dy = c->ody;
 }
 
 static void
@@ -1199,7 +1240,10 @@ tile(Client *c, int dir)
 	} else {
 		savegeom(c);
 		tilegeom(dir, &nx, &ny, &ndx, &ndy);
-		c->x = nx; c->y = ny; c->dx = ndx; c->dy = ndy;
+		c->x = nx;
+		c->y = ny;
+		c->dx = ndx;
+		c->dy = ndy;
 		c->tiled = dir;
 	}
 	applylayout(c);
@@ -1404,8 +1448,10 @@ pullclient(Client *c, int bl, XButtonEvent *start)
 			break;
 		} else if(ev.type == ButtonRelease){
 			outline_hide();
-			c->x = bx + BORDER; c->y = by + BORDER;
-			c->dx = bdx - 2*BORDER; c->dy = bdy - 2*BORDER;
+			c->x = bx + BORDER;
+			c->y = by + BORDER;
+			c->dx = bdx - 2*BORDER;
+			c->dy = bdy - 2*BORDER;
 			applylayout(c);
 			raisebar();
 			break;
@@ -1727,10 +1773,11 @@ clientmessage(XClientMessageEvent *e)
 		int fs;
 		if((Atom)e->data.l[1] != net_wm_state_fs && (Atom)e->data.l[2] != net_wm_state_fs)
 			return;
-		fs = e->data.l[0] == 1 || (e->data.l[0] == 2 && !c->fullscreen);
+		fs = e->data.l[0] == StateAdd || (e->data.l[0] == StateToggle && !c->fullscreen);
 		if(fs == c->fullscreen)
 			return;
-		if(fs) savegeom(c);
+		if(fs)
+			savegeom(c);
 		c->fullscreen = fs;
 		if(fs){
 			ewmh_set(c->win, net_wm_state, XA_ATOM, 32, &net_wm_state_fs, 1);
