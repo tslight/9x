@@ -1,4 +1,3 @@
-/* 9x - Plan 9 style window manager. BSD-3-Clause. */
 #include <ctype.h>
 #include <dirent.h>
 #include <err.h>
