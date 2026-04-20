@@ -1200,6 +1200,25 @@ restoregeom(Client *c)
 	c->dy = c->ody;
 }
 
+static int
+edgezone(int x, int y)
+{
+	int at_left = x < EDGE_SNAP;
+	int at_right = x >= (int)sw - EDGE_SNAP;
+	int at_top = y < (int)barh + EDGE_SNAP;
+	int at_bottom = y >= (int)sh - EDGE_SNAP;
+
+	if(at_top && at_left) return TileNW;
+	if(at_top && at_right) return TileNE;
+	if(at_bottom && at_left) return TileSW;
+	if(at_bottom && at_right) return TileSE;
+	if(at_top) return TileN;
+	if(at_bottom) return TileS;
+	if(at_left) return TileW;
+	if(at_right) return TileE;
+	return TileNone;
+}
+
 static void
 tilegeom(int dir, int *nx, int *ny, unsigned int *ndx, unsigned int *ndy)
 {
@@ -1463,8 +1482,8 @@ static void
 moveclient(Client *c, XButtonEvent *start)
 {
 	XEvent ev;
-	int ox, oy, mx, my, bx, by;
-	unsigned int bdx, bdy;
+	int ox, oy, mx, my, bx, by, zone, tx, ty;
+	unsigned int bdx, bdy, tdx, tdy;
 
 	if(!c)
 		return;
@@ -1472,6 +1491,7 @@ moveclient(Client *c, XButtonEvent *start)
 	mx = start->x_root; my = start->y_root;
 	bx = ox - BORDER; by = oy - BORDER;
 	bdx = c->dx + 2*BORDER; bdy = c->dy + 2*BORDER;
+	zone = TileNone;
 
 	if(XGrabPointer(dpy, root, False,
 		ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
@@ -1485,19 +1505,29 @@ moveclient(Client *c, XButtonEvent *start)
 		XMaskEvent(dpy, ButtonPressMask|ButtonReleaseMask
 			|PointerMotionMask, &ev);
 		if(ev.type == MotionNotify){
-			clearsnap(c);
 			bx = ox + (ev.xmotion.x_root - mx) - BORDER;
 			by = oy + (ev.xmotion.y_root - my) - BORDER;
 			clampframe(&bx, &by, &bdx, &bdy);
-			outline_show(bx, by, bdx, bdy);
+			zone = edgezone(ev.xmotion.x_root, ev.xmotion.y_root);
+			if(zone != TileNone){
+				tilegeom(zone, &tx, &ty, &tdx, &tdy);
+				outline_show(tx - BORDER, ty - BORDER, tdx + 2*BORDER, tdy + 2*BORDER);
+			} else {
+				outline_show(bx, by, bdx, bdy);
+			}
 			XFlush(dpy);
 		} else if(ev.type == ButtonRelease){
 			outline_hide();
-			c->x = bx + BORDER;
-			c->y = by + BORDER;
-			XMoveWindow(dpy, c->frame, bx, by);
-			sendconfig(c);
-			raisebar();
+			if(zone != TileNone){
+				tile(c, zone);
+			} else {
+				clearsnap(c);
+				c->x = bx + BORDER;
+				c->y = by + BORDER;
+				XMoveWindow(dpy, c->frame, bx, by);
+				sendconfig(c);
+				raisebar();
+			}
 			break;
 		} else if(ev.type == ButtonPress){
 			outline_hide();
@@ -1599,12 +1629,22 @@ buttonpress(XButtonEvent *e)
 			}
 			return;
 		}
-		sweepnew();
+		if(btn == Button4)
+			switch_to((curdesk + NDESKS - 1) % NDESKS);
+		else if(btn == Button5)
+			switch_to((curdesk + 1) % NDESKS);
+		else
+			sweepnew();
 		return;
 	}
 
 	if(e->window == root){
-		sweepnew();
+		if(btn == Button4)
+			switch_to((curdesk + NDESKS - 1) % NDESKS);
+		else if(btn == Button5)
+			switch_to((curdesk + 1) % NDESKS);
+		else
+			sweepnew();
 		return;
 	}
 

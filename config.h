@@ -31,6 +31,7 @@
 /* Behavior */
 #define NDESKS      9
 #define DBLCLICK_MS 500
+#define EDGE_SNAP   16
 #define TIMEFMT     "%H:%M %a %d/%m"
 #define TERM        "xterm"
 #define XFTFONT     "sans:bold:size=8"
