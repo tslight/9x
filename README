@@ -26,43 +26,32 @@ OPTIONS
 
 MOUSE
    Run Button
-     Hover  Launcher.
-
+     Hover        Launch.
    Launcher
-     Button 1  Launch.
-
-     Button 3  Sweep.
-
+     Button 1     Launch.
+     Button 3     Sweep.
    Window Tabs
-     Hover     Focus.
-
-     Button 1  Maximize.
-
-     Button 2  Delete.
-
-     Button 3  Re-Sweep.
-
+     Hover        Focus.
+     Button 1     Maximize.
+     Button 2     Delete.
+     Button 3     Re-Sweep.
    Desktop Buttons
-     Button 1  Switch to Desktop.
-
-     Button 2  Window to Desktop.
-
-     Button 3  Follow Window to Desktop.
-
-   Status Area (Battery/Clock)
-     Any Button  Sweep.
-
+     Button 1     Switch to Desktop.
+     Button 2     Window to Desktop.
+     Button 3     Follow Window to Desktop.
    Window Borders
      Button 1     Resize.
-
      Button 2     Delete.
-
      Button 3     Move.
-
      Doubleclick  Tile.
-
+   Battery/Clock
+     B1/2/3       Sweep.
+     B4/5         Scroll Desktops.
    Root Window
-     Button 1  Sweep.
+     B1/2/3       Sweep.
+     B4/5         Scroll Desktops.
+   Root Edges & Corners
+     Edgesnapping
 
 CUSTOMIZATION
      Read the goddamn src(1) you filthy heathen.
@@ -74,6 +63,4 @@ AUTHORS
      Toby Slight
 
 BUGS
-     Programs that depend on EWMH/ICCCM may shit the bed.
-
      Cursed cursors & Caerbannog bunnies lurking in dark corners...
