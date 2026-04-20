@@ -1,3 +1,4 @@
+/* 9x - Plan 9 style window manager. BSD-3-Clause. */
 #include <ctype.h>
 #include <dirent.h>
 #include <err.h>
@@ -117,62 +118,38 @@ enum { Pdelete = 1, Ptakefocus = 2 };
 static Display      *dpy;
 static int           screen;
 static Window        root;
-static unsigned int  sw, sh;
+static unsigned int  sw, sh, barw, barh;
 static XftFont      *xftfont;
-static Cursor        c_arrow, c_sweep, c_box;
-static Cursor        c_border[NBorder];
+static Cursor        c_arrow, c_sweep, c_box, c_border[NBorder];
 static Atom          wm_protocols, wm_delete, wm_take_focus, wm_state;
 static Atom          net_supported, net_supporting, net_client_list, net_active;
 static Atom          net_num_desks, net_cur_desk, net_wm_desk, net_workarea;
 static Atom          net_wm_name, net_wm_state, net_wm_state_fs, net_frame_ext;
-static Atom          net_wm_type, net_wm_type_dock;
-static Atom          utf8_string;
-static Client       *clients;
-static Client       *current;
-static unsigned long col_active, col_inactive;
-static unsigned long col_red;
+static Atom          net_wm_type, net_wm_type_dock, utf8_string;
+static Client       *clients, *current;
+static unsigned long col_active, col_inactive, col_red;
 static volatile sig_atomic_t running = 1;
-static Window        swout[4];
-static Window        wmcheck;
-static time_t        sweep_pending;
-static int           sweep_x, sweep_y;
+static Window        swout[4], wmcheck, barwin, last_click_win;
+static time_t        sweep_pending, bar_deadline;
+static int           sweep_x, sweep_y, curdesk, bar_batt = -1, bar_onac;
 static unsigned int  sweep_dx, sweep_dy;
 static Time          last_click_time;
-static Window        last_click_win;
-static int           curdesk;
 static Client       *deskfocus[NDESKS];
-static Window        barwin;
 static Pixmap        barpix;
 static GC            bargc;
 static XftDraw      *bardraw;
 static XftColor      bar_fg, bar_bg, bar_sel, bar_self, bar_tab;
 static XftColor      bar_run, bar_exit, bar_desk[DESK_COLORS];
-static unsigned long col_bar_bd;
-static unsigned int  barw, barh;
-static int           bar_batt = -1;
-static int           bar_onac;
-static time_t        bar_deadline;
 
 static Client       *bar_tabs[MAXCLIENTS];
-static int           bar_tab_x[MAXCLIENTS];
-static int           bar_tab_w[MAXCLIENTS];
-static int           bar_ntabs;
-
-static int           bar_run_x, bar_run_w;
-static int           bar_desk_x[NDESKS], bar_desk_w;
-static int           bar_status_x;
-static int           bar_exit_x, bar_exit_w;
-static int           launch_visible;
+static int           bar_tab_x[MAXCLIENTS], bar_tab_w[MAXCLIENTS], bar_ntabs;
+static int           bar_run_x, bar_run_w, bar_desk_w, bar_status_x, bar_exit_x, bar_exit_w;
+static int           bar_desk_x[NDESKS];
+static int           launch_visible, launch_ncmds, launch_sel = -1, launch_scroll;
+static int           launch_filterlen, launch_nfiltered, launch_nitems;
 static char         *launch_cmds[MAXCMDS];
-static int           launch_ncmds;
-static int           launch_sel = -1;
-static int           launch_scroll;
 static char          launch_filter[256];
-static int           launch_filterlen;
-static int           launch_filtered[MAXCMDS];
-static int           launch_nfiltered;
-static int           launch_item_x[MAXCMDS];
-static int           launch_item_w[MAXCMDS];
+static int           launch_filtered[MAXCMDS], launch_item_x[MAXCMDS], launch_item_w[MAXCMDS];
 static int           launch_nitems;
 static void bar_redraw(void);
 
@@ -186,29 +163,16 @@ raisebar(void)
 static unsigned long
 getcolor(unsigned long rgb)
 {
-	XColor c;
-
-	c.red   = RGB16(rgb >> 16);
-	c.green = RGB16(rgb >> 8);
-	c.blue  = RGB16(rgb);
-	c.flags = DoRed | DoGreen | DoBlue;
-	if(!XAllocColor(dpy, DefaultColormap(dpy, screen), &c))
-		return WhitePixel(dpy, screen);
-	return c.pixel;
+	XColor c = {0, RGB16(rgb >> 16), RGB16(rgb >> 8), RGB16(rgb), DoRed | DoGreen | DoBlue, 0};
+	return XAllocColor(dpy, DefaultColormap(dpy, screen), &c) ? c.pixel : WhitePixel(dpy, screen);
 }
 
 static XftColor
 getxftcolor(unsigned long rgb)
 {
-	XRenderColor rc;
+	XRenderColor rc = {RGB16(rgb >> 16), RGB16(rgb >> 8), RGB16(rgb), 0xFFFF};
 	XftColor c = {0};
-
-	rc.red   = RGB16(rgb >> 16);
-	rc.green = RGB16(rgb >> 8);
-	rc.blue  = RGB16(rgb);
-	rc.alpha = 0xFFFF;
-	if(!XftColorAllocValue(dpy, DefaultVisual(dpy, screen),
-		DefaultColormap(dpy, screen), &rc, &c))
+	if(!XftColorAllocValue(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &rc, &c))
 		c.pixel = WhitePixel(dpy, screen);
 	return c;
 }
@@ -216,20 +180,12 @@ getxftcolor(unsigned long rgb)
 static Cursor
 makecursor(Cursordata *d)
 {
-	Pixmap f, m;
-	Cursor cur;
 	XColor bl, wh, dummy;
-
-	XAllocNamedColor(dpy, DefaultColormap(dpy, screen),
-		"black", &bl, &dummy);
-	XAllocNamedColor(dpy, DefaultColormap(dpy, screen),
-		"white", &wh, &dummy);
-	f = XCreatePixmapFromBitmapData(dpy, root, (char *)d->fore,
-		d->width, d->width, 1, 0, 1);
-	m = XCreatePixmapFromBitmapData(dpy, root, (char *)d->mask,
-		d->width, d->width, 1, 0, 1);
-	cur = XCreatePixmapCursor(dpy, f, m, &bl, &wh,
-		d->hot[0], d->hot[1]);
+	XAllocNamedColor(dpy, DefaultColormap(dpy, screen), "black", &bl, &dummy);
+	XAllocNamedColor(dpy, DefaultColormap(dpy, screen), "white", &wh, &dummy);
+	Pixmap f = XCreatePixmapFromBitmapData(dpy, root, (char *)d->fore, d->width, d->width, 1, 0, 1);
+	Pixmap m = XCreatePixmapFromBitmapData(dpy, root, (char *)d->mask, d->width, d->width, 1, 0, 1);
+	Cursor cur = XCreatePixmapCursor(dpy, f, m, &bl, &wh, d->hot[0], d->hot[1]);
 	XFreePixmap(dpy, f);
 	XFreePixmap(dpy, m);
 	return cur;
@@ -239,41 +195,19 @@ static int
 xft_textwidth(const char *s, int len)
 {
 	XGlyphInfo ext;
-
 	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)s, len, &ext);
 	return ext.xOff;
 }
 
-static int
-handler(Display *d, XErrorEvent *e)
-{
-	USED(d); USED(e);
-	return 0;
-}
-
-static void
-sigchld(int sig)
-{
-	USED(sig);
-	while(waitpid(-1, NULL, WNOHANG) > 0)
-		;
-}
-
-static void
-sigterm(int sig)
-{
-	USED(sig);
-	running = 0;
-}
+static int handler(Display *d, XErrorEvent *e) { USED(d); USED(e); return 0; }
+static void sigchld(int sig) { USED(sig); while(waitpid(-1, NULL, WNOHANG) > 0); }
+static void sigterm(int sig) { USED(sig); running = 0; }
 
 static void
 spawn(const char *cmd)
 {
-	pid_t p;
-
-	p = fork();
-	if(p < 0)
-		return;
+	pid_t p = fork();
+	if(p < 0) return;
 	if(p == 0){
 		if(fork() == 0){
 			setsid();
@@ -435,8 +369,6 @@ bar_drawbtn(int x, int w, const char *s, int len, int sel, XftColor *bg)
 	if(w <= 0)
 		return;
 	XftDrawRect(bardraw, sel ? &bar_sel : bg, x, 0, (unsigned int)w, barh);
-	XSetForeground(dpy, bargc, col_bar_bd);
-	XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)(w - 1), barh - 1);
 	XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
 		x + BAR_BTN_PAD, ty, (const FcChar8 *)s, len);
 }
@@ -455,8 +387,6 @@ launcher_draw(void)
 	x = BAR_GAP;
 
 	XftDrawRect(bardraw, &bar_tab, x, 0, LAUNCH_FILTER_W, barh);
-	XSetForeground(dpy, bargc, col_bar_bd);
-	XDrawRectangle(dpy, barpix, bargc, x, 0, LAUNCH_FILTER_W - 1, barh - 1);
 	XftDrawStringUtf8(bardraw, &bar_fg, xftfont,
 		x + BAR_BTN_PAD, ty, (const FcChar8 *)launch_filter, launch_filterlen);
 	XftTextExtentsUtf8(dpy, xftfont, (const FcChar8 *)launch_filter, launch_filterlen, &ext);
@@ -483,8 +413,6 @@ launcher_draw(void)
 		XftDrawRect(bardraw, sel ? &bar_sel : &bar_tab, x, 0, (unsigned int)tw, barh);
 		XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
 			x + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		XSetForeground(dpy, bargc, col_bar_bd);
-		XDrawRectangle(dpy, barpix, bargc, x, 0, (unsigned int)(tw - 1), barh - 1);
 		x += tw + BAR_GAP;
 	}
 
@@ -680,9 +608,6 @@ bar_drawtabs(int x, int tabarea, int rightw)
 			tabx, 0, (unsigned int)tw, barh);
 		XftDrawStringUtf8(bardraw, sel ? &bar_self : &bar_fg, xftfont,
 			tabx + BAR_BTN_PAD, ty, (const FcChar8 *)name, nlen);
-		XSetForeground(dpy, bargc, col_bar_bd);
-		XDrawRectangle(dpy, barpix, bargc, tabx, 0,
-			(unsigned int)(tw - 1), barh - 1);
 		tabx += tw + BAR_GAP;
 	}
 	bar_ntabs = drawn;
@@ -1007,6 +932,16 @@ applylayout(Client *c)
 	sendconfig(c);
 }
 
+static Client *
+topclient(void)
+{
+	Client *c;
+	for(c = clients; c; c = c->next)
+		if(c->virt == curdesk)
+			return c;
+	return NULL;
+}
+
 static void
 switch_to(int n)
 {
@@ -1025,19 +960,13 @@ switch_to(int n)
 static void
 sendtodesktop(Client *c, int n)
 {
-	Client *next;
-
 	if(!c || n < 0 || n >= NDESKS || n == curdesk)
 		return;
 	c->virt = n;
 	ewmh_set(c->win, net_wm_desk, XA_CARDINAL, 32, &(long){n}, 1);
 	XUnmapWindow(dpy, c->frame);
-	if(current == c){
-		for(next = clients; next; next = next->next)
-			if(next->virt == curdesk)
-				break;
-		focus(next);
-	}
+	if(current == c)
+		focus(topclient());
 	deskfocus[n] = c;
 	switch_to(n);
 }
@@ -1190,10 +1119,7 @@ unmanage(Client *c)
 	ewmh_updateclients();
 	if(current == c){
 		current = NULL;
-		for(c = clients; c; c = c->next)
-			if(c->virt == curdesk)
-				break;
-		focus(c);
+		focus(topclient());
 	} else
 		bar_redraw();
 	free(old->label);
@@ -1604,10 +1530,7 @@ buttonpress(XButtonEvent *e)
 					XUnmapWindow(dpy, current->frame);
 					deskfocus[i] = current;
 					ewmh_updateclients();
-					for(c = clients; c; c = c->next)
-						if(c->virt == curdesk)
-							break;
-					focus(c);
+					focus(topclient());
 				} else if(btn == Button3)
 					sendtodesktop(current, i);
 				return;
@@ -1787,7 +1710,6 @@ static void
 clientmessage(XClientMessageEvent *e)
 {
 	Client *c;
-	int fs;
 
 	if(e->message_type == net_cur_desk){
 		if(e->data.l[0] >= 0 && e->data.l[0] < NDESKS)
@@ -1802,6 +1724,7 @@ clientmessage(XClientMessageEvent *e)
 			switch_to(c->virt);
 		focus(c);
 	} else if(e->message_type == net_wm_state){
+		int fs;
 		if((Atom)e->data.l[1] != net_wm_state_fs && (Atom)e->data.l[2] != net_wm_state_fs)
 			return;
 		fs = e->data.l[0] == 1 || (e->data.l[0] == 2 && !c->fullscreen);
@@ -1809,8 +1732,15 @@ clientmessage(XClientMessageEvent *e)
 			return;
 		if(fs) savegeom(c);
 		c->fullscreen = fs;
+		if(fs){
+			ewmh_set(c->win, net_wm_state, XA_ATOM, 32, &net_wm_state_fs, 1);
+			ewmh_set(c->win, net_frame_ext, XA_CARDINAL, 32, (long[]){0,0,0,0}, 4);
+		} else {
+			XDeleteProperty(dpy, c->win, net_wm_state);
+			ewmh_set(c->win, net_frame_ext, XA_CARDINAL, 32, (long[]){BORDER,BORDER,BORDER,BORDER}, 4);
+		}
 		applylayout(c);
-		fs ? XRaiseWindow(dpy, c->frame) : raisebar();
+		focus(c);
 	}
 }
 
@@ -1846,7 +1776,6 @@ setup_bar(void)
 	bar_desk[1] = getxftcolor(COL_BAR_DESK1);
 	bar_desk[2] = getxftcolor(COL_BAR_DESK2);
 	bar_desk[3] = getxftcolor(COL_BAR_DESK3);
-	col_bar_bd = getcolor(COL_BAR_BD);
 
 	barw = sw;
 	barh = (unsigned int)(xftfont->ascent + xftfont->descent) + BAR_PAD * 2;

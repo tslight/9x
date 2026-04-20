@@ -1,16 +1,15 @@
 /* Colors - Plan 9 palette */
-#define COL_ACTIVE     0x55AAAA    /* active border - dark cyan */
+#define COL_ACTIVE     0x55AAAA    /* active border - teal */
 #define COL_INACTIVE   0x9EEEEE    /* inactive border - pale cyan */
-#define COL_SWEEP_BD   0xDD0000    /* sweep outline - red */
-#define COL_ROOT_BG    0x777777    /* root background - grey */
+#define COL_SWEEP_BD   0xAA0000    /* sweep outline - red */
+#define COL_ROOT_BG    0x999999    /* root background - grey */
 
 /* Bar colors */
 #define COL_BAR_BG     0xEAFFFF    /* background - pale cyan */
 #define COL_BAR_FG     0x000000    /* text - black */
-#define COL_BAR_SEL    0x9EEEEE    /* selection - pale blue */
-#define COL_BAR_SELF   0x005555    /* selection text - dark teal */
+#define COL_BAR_SEL    0x55AAAA    /* selection - teal */
+#define COL_BAR_SELF   0xFFFFFF    /* selection text - white */
 #define COL_BAR_TAB    0xEEFFEE    /* tab - pale green */
-#define COL_BAR_BD     0x88AAAA    /* border - muted cyan */
 #define COL_BAR_RUN    0x99EE99    /* run button - green */
 #define COL_BAR_EXIT   0xEE9999    /* exit button - red */
 #define COL_BAR_DESK0  0xEAFFEA    /* desk empty */
@@ -20,11 +19,11 @@
 
 /* Geometry */
 #define BORDER      4
-#define CORNER      25
+#define CORNER      32
 
 /* Bar */
 #define BAR_PAD     2
-#define BAR_BTN_PAD 4
+#define BAR_BTN_PAD 2
 #define BAR_GAP     2
 #define BAR_REFRESH 60
 #define LAUNCH_FILTER_W 200
