@@ -522,7 +522,6 @@ launcher_key(XKeyEvent *e)
 {
 	char buf[32];
 	KeySym ks;
-	const char *cmd;
 	int n;
 
 	n = XLookupString(e, buf, sizeof(buf) - 1, &ks, NULL);
@@ -532,10 +531,11 @@ launcher_key(XKeyEvent *e)
 		return;
 	}
 	if(ks == XK_Return || ks == XK_KP_Enter){
+		launcher_hide();
 		if(launch_sel >= 0 && launch_sel < launch_nfiltered){
-			cmd = launch_cmds[launch_filtered[launch_sel]];
-			launcher_hide();
-			spawn(cmd);
+			spawn(launch_cmds[launch_filtered[launch_sel]]);
+		} else if(launch_filterlen > 0){
+			spawn(launch_filter);
 		}
 		return;
 	}
@@ -1617,8 +1617,13 @@ buttonpress(XButtonEvent *e)
 			return;
 		}
 		if(e->x >= bar_status_x && e->x < bar_exit_x){
-			sweepnew();
-			return;
+			if(btn == Button4)
+        		switch_to((curdesk + NDESKS - 1) % NDESKS);
+    		else if(btn == Button5)
+        		switch_to((curdesk + 1) % NDESKS);
+    		else
+        		sweepnew();
+    		return;
 		}
 		c = bar_hittest(e->x);
 		if(c){
