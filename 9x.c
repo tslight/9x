@@ -1618,12 +1618,12 @@ buttonpress(XButtonEvent *e)
 		}
 		if(e->x >= bar_status_x && e->x < bar_exit_x){
 			if(btn == Button4)
-        		switch_to((curdesk + NDESKS - 1) % NDESKS);
-    		else if(btn == Button5)
-        		switch_to((curdesk + 1) % NDESKS);
-    		else
-        		sweepnew();
-    		return;
+				switch_to((curdesk + NDESKS - 1) % NDESKS);
+			else if(btn == Button5)
+				switch_to((curdesk + 1) % NDESKS);
+			else
+				sweepnew();
+			return;
 		}
 		c = bar_hittest(e->x);
 		if(c){
